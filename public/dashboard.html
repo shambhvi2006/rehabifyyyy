@@ -5,29 +5,29 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Rehabify - Dashboard</title>
     <link rel="stylesheet" href="style.css">
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏃</text></svg>" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>R</text></svg>" />
 </head>
 <body>
     <div class="app">
         <header class="topbar">
             <div class="title-section">
-                <h1>🏃 Rehabify</h1>
+                <h1>Rehabify</h1>
                 <div class="subtitle">Your Rehabilitation Dashboard</div>
             </div>
             <div class="level-section">
-                <span class="level-tag level-1">• Dashboard</span>
+                <span class="level-tag level-1">Dashboard</span>
             </div>
         </header>
 
         <main class="dashboard-content">
             <div class="welcome-section">
-                <h2>Welcome Back! 👋</h2>
+                <h2>Welcome Back!</h2>
                 <p>Great job on your rehabilitation journey. Here's your progress summary:</p>
             </div>
 
             <div class="stats-overview">
                 <div class="stat-card">
-                    <div class="stat-icon">💪</div>
+                    <div class="stat-icon"></div>
                     <div class="stat-details">
                         <div class="stat-number" id="totalExercises">0</div>
                         <div class="stat-label">Total Exercises</div>
@@ -35,7 +35,7 @@
                 </div>
                 
                 <div class="stat-card">
-                    <div class="stat-icon">⭐</div>
+                    <div class="stat-icon"></div>
                     <div class="stat-details">
                         <div class="stat-number" id="totalStars">0</div>
                         <div class="stat-label">Stars Earned</div>
@@ -43,7 +43,7 @@
                 </div>
                 
                 <div class="stat-card">
-                    <div class="stat-icon">🔥</div>
+                    <div class="stat-icon"></div>
                     <div class="stat-details">
                         <div class="stat-number" id="bestStreak">0</div>
                         <div class="stat-label">Best Streak</div>
@@ -51,7 +51,7 @@
                 </div>
                 
                 <div class="stat-card">
-                    <div class="stat-icon">🎯</div>
+                    <div class="stat-icon"></div>
                     <div class="stat-details">
                         <div class="stat-number" id="currentLevel">1</div>
                         <div class="stat-label">Current Level</div>
@@ -59,7 +59,7 @@
                 </div>
                 
                 <div class="stat-card mood-card">
-                    <div class="stat-icon" id="moodIcon">😊</div>
+                    <div class="stat-icon" id="moodIcon"></div>
                     <div class="stat-details">
                         <div class="stat-number" id="lastMood">Good</div>
                         <div class="stat-label">Last Session Mood</div>
@@ -79,7 +79,7 @@
             </div>
 
             <div class="mood-progress-section">
-                <h3>📊 Weekly Mood Trend</h3>
+                <h3>Weekly Mood Trend</h3>
                 <div class="mood-chart-card">
                     <div id="moodChart" class="mood-chart-container">
                         <div class="loading-chart">Loading mood data...</div>
@@ -88,7 +88,7 @@
             </div>
 
             <div class="candy-crush-calendar-section">
-                <h3>🍭 Your Daily Rehabilitation Journey</h3>
+                <h3>Your Daily Rehabilitation Journey</h3>
                 <div class="calendar-streak-info">
                     <div class="streak-badge">
                         <span class="streak-number" id="currentStreak">0</span>
@@ -101,43 +101,43 @@
                 </div>
                 <div class="legend-section">
                     <div class="legend-item">
-                        <div class="legend-icon completed">🏆</div>
+                        <div class="legend-icon completed"></div>
                         <span>Completed</span>
                     </div>
                     <div class="legend-item">
-                        <div class="legend-icon partial">⭐</div>
+                        <div class="legend-icon partial"></div>
                         <span>Partial</span>
                     </div>
                     <div class="legend-item">
-                        <div class="legend-icon missed">😔</div>
+                        <div class="legend-icon missed"></div>
                         <span>Missed</span>
                     </div>
                     <div class="legend-item">
-                        <div class="legend-icon today">🎯</div>
+                        <div class="legend-icon today"></div>
                         <span>Today</span>
                     </div>
                 </div>
             </div>
 
             <div class="quick-start-section">
-                <h3>🚀 Quick Start</h3>
+                <h3>Quick Start</h3>
                 <div class="program-selector">
                     <div class="program-card active" data-program="upper-body">
-                        <div class="program-icon">💪</div>
+                        <div class="program-icon"></div>
                         <div class="program-title">Upper Body Focus</div>
                         <div class="program-description">Forward reaches & overhead movements</div>
                         <div class="program-difficulty">Beginner Friendly</div>
                     </div>
                     
                     <div class="program-card coming-soon" data-program="lower-body">
-                        <div class="program-icon">🦵</div>
+                        <div class="program-icon"></div>
                         <div class="program-title">Lower Body Focus</div>
                         <div class="program-description">Coming Soon</div>
                         <div class="program-difficulty">—</div>
                     </div>
                     
                     <div class="program-card coming-soon" data-program="full-body">
-                        <div class="program-icon">🏋️</div>
+                        <div class="program-icon"></div>
                         <div class="program-title">Full Body Workout</div>
                         <div class="program-description">Coming Soon</div>
                         <div class="program-difficulty">—</div>
@@ -147,13 +147,13 @@
             
             <div class="actions-section">
                 <button id="viewProgress" class="secondary-btn">
-                    <span class="btn-icon">📊</span>
+                    <span class="btn-icon"></span>
                     <span class="btn-text">View Detailed Progress</span>
                 </button>
             </div>
 
             <div class="motivational-message">
-                <div class="message-icon">🌟</div>
+                <div class="message-icon"></div>
                 <div class="message-text">
                     <h4>Keep up the great work!</h4>
                     <p>Consistency is key to successful rehabilitation. Your dedication is paying off!</p>
