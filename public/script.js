@@ -1,5 +1,5 @@
 // ==========================
-// Rehabify — script.js (sticky intros + gating + pro fonts)
+// Rehabify — script.js (perf mode, ghost coach, levels, gating, 2 reps)
 // ==========================
 
 // -------- DOM
@@ -16,9 +16,11 @@ const statusEl= document.getElementById('status');
 const exerciseInfoEl = document.getElementById('exerciseInfo');
 const repBigEl   = document.getElementById('repBig');
 const coachBoxEl = document.getElementById('coachBox');
+const levelTagEl = document.getElementById('levelTag');
 
 const status = msg => { if (statusEl) statusEl.textContent = msg || ''; };
 const coach  = msg => { if (coachBoxEl) coachBoxEl.textContent = msg || ''; };
+const setLevelTag = n => { if (levelTagEl) levelTagEl.textContent = `• Level ${n}`; };
 
 function bopMascot() {
   if (!mascot) return;
@@ -27,30 +29,65 @@ function bopMascot() {
   setTimeout(()=> mascot.style.transform = 'scale(1)', 120);
 }
 
-// -------- Exercises (from separate files). If none, use safe defaults.
+// --- Performance mode (reduces GPU/CPU work)
+const PERF = { LOW: true };
+
+// -------- Exercises (from separate files). Fallbacks if none are provided.
 const RAW_LIST = Object.values(window.Exercises || {});
-let exercises = RAW_LIST.length ? RAW_LIST : [{
+let exercisesRaw = RAW_LIST.length ? RAW_LIST : [{
   id:'shoulderAbduction',
   name:'Shoulder Abduction',
   description:'Raise then lower both arms to pop stars 1→4→1',
   criteria:'shoulderAbduction',
-  repetitions_target:6,
+  repetitions_target:2,
   showShoulderLine:true
 },{
   id:'shoulderFlexionForwardRaise',
   name:'Shoulder Flexion',
   description:'Hold BOTH palms on the ring until it descends to shoulder level',
   criteria:'shoulderFlexionForwardRaise',
-  repetitions_target:6,
+  repetitions_target:2,
   showShoulderLine:true
 },{
   id:'forwardReach',
-  name:'Forward Reach',
+  name:'Front Reaches',
   description:'Reach forward to the ring and hold briefly',
   criteria:'forwardReach',
-  repetitions_target:8,
+  repetitions_target:2,
   showShoulderLine:true
 }];
+
+// remove any side-reach variants that might be present
+exercisesRaw = exercisesRaw.filter(e => e.criteria !== 'sideReach' && e.criteria !== 'side_reach');
+
+// NEW upper-body exercise: Overhead Press (criteria-based)
+const overheadPressExercise = {
+  id: 'overheadPress',
+  name: 'Overhead Press',
+  description: 'Press both hands overhead, then return to shoulder level',
+  criteria: 'overheadPress',
+  repetitions_target: 2,
+  showShoulderLine: true,
+  introSticky: true,
+  introText: 'Stand tall. Keep both shoulders visible. Press BOTH hands overhead, then bring them back to shoulder level.'
+};
+
+// -------- Level plan (flattened so your flow keeps working)
+const PLAN = [
+  // Level 1 (Upper Body)
+  { ...(exercisesRaw.find(e => e.criteria === 'forwardReach') || {}), level: 1, requiresWaist: true, repetitions_target: 2 },
+  { ...overheadPressExercise, level: 1, requiresWaist: true },
+
+  // Mid break
+  { mode: 'LEVEL_BREAK', message: '🎉 Congratulations! Moving to Level 2…', delay: 1200, nextLevel: 2 },
+
+  // Level 2 (Lower Body, two dummies)
+  { id:'sit_to_stand_dummy', name:'Level 2: Lower Body — Sit-to-Stand (demo)', description:'Auto-count demo', criteria:'dummyReps', repetitions_target:2, dummy:true, level:2, requiresFullBody:true },
+  { id:'march_in_place_dummy', name:'Level 2: Lower Body — March in Place (10s)', description:'Timer demo', criteria:'dummyTimer', repetitions_target:10, dummy:true, seconds:true, level:2, requiresFullBody:true },
+
+  // Day done
+  { mode: 'DAY_DONE', message: '✅ Thank you — you are done for the day!' }
+].filter(Boolean);
 
 // -------- State
 let running=false;
@@ -62,6 +99,8 @@ let latestLm=null;
 let currentExerciseIndex=0;
 let currentExercise=null;
 
+let _dummyTimer = null;
+
 // -------- Settings
 const VIS_THRESH = 0.25;
 const SHOW_LANDMARKS = false;
@@ -70,6 +109,8 @@ let   MISS_Y = 300;
 
 // ---- frame pacing
 let _prevNow = performance.now();
+let _lastDrawAt = 0;
+const FRAME_MS = 100; // ~15fps
 
 // ---- Intro overlay (sticky + gating)
 let _intro = { text:'', sticky:false, visible:false, until:0, sub:'' };
@@ -93,12 +134,11 @@ function shouldHoldIntro(){
     return false;
   }
 
-  // Defaults: waist required for forward/side reach
-  if (currentExercise?.requiresWaist){
-    if (!(visOK(latestLm[23]) && visOK(latestLm[24]))){
-      _intro.sub = 'Show body till the waist';
-      return true;
-    }
+  // Requirements per exercise
+  if (currentExercise?.requiresFullBody){
+    if (!fullBodyVisible(latestLm)){ _intro.sub = 'Show your FULL body (hips, knees, and ankles visible)'; return true; }
+  } else if (currentExercise?.requiresWaist){
+    if (!waistVisible(latestLm)){ _intro.sub = 'Show body till the waist'; return true; }
   }
   _intro.sub = '';
   return false;
@@ -160,8 +200,10 @@ function playDing(){
 
 // -------- Canvas
 function setCanvasSize(){
-  canvas.width  = video.videoWidth  || canvas.clientWidth  || 640;
-  canvas.height = video.videoHeight || canvas.clientHeight || 480;
+  const targetW = PERF.LOW ? 640 : (video.videoWidth  || 640);
+  const targetH = PERF.LOW ? 360 : (video.videoHeight || 480);
+  canvas.width  = targetW;
+  canvas.height = targetH;
   MISS_Y = canvas.height * MISS_Y_FRAC;
   if (isAbduction()) setupRainbowStars(false);
 }
@@ -198,6 +240,14 @@ function palmPix(lm, side){
   return { x:(W.x + I.x + T.x)/3, y:(W.y + I.y + T.y)/3 };
 }
 
+// Visibility requirements
+function waistVisible(lm){ return visOK(lm?.[23]) && visOK(lm?.[24]); }
+function fullBodyVisible(lm){
+  return visOK(lm?.[23]) && visOK(lm?.[24]) &&  // hips
+         visOK(lm?.[25]) && visOK(lm?.[26]) &&  // knees
+         visOK(lm?.[27]) && visOK(lm?.[28]);    // ankles
+}
+
 // ---- Rep increment (debounced)
 let _lastRepAt = 0;
 function incrementRep() {
@@ -209,7 +259,7 @@ function incrementRep() {
   if (repBigEl) repBigEl.textContent = String(repCount);
   updateExerciseInfo();
 
-  const need = currentExercise?.repetitions_target || 8;
+  const need = currentExercise?.repetitions_target || 2;
   if (repCount >= need) setTimeout(()=>goToExercise(currentExerciseIndex+1), 250);
 }
 
@@ -224,7 +274,7 @@ function drawShoulderLocator(lm){
   ctx.beginPath(); ctx.moveTo(sL.x, sL.y); ctx.lineTo(sR.x, sR.y); ctx.stroke();
   for (const p of [sL, sR]){
     ctx.shadowColor = '#66e3ff';
-    ctx.shadowBlur = 10;
+    ctx.shadowBlur = PERF.LOW ? 0 : 10;
     ctx.fillStyle = '#66e3ff';
     ctx.beginPath(); ctx.arc(p.x, p.y, 6, 0, Math.PI*2); ctx.fill();
   }
@@ -252,28 +302,36 @@ function trunkNotRotated(lm, maxDeg=12){
 }
 
 // =========================================================================================
-// NORMALIZE EXERCISES (defaults ensure intros & gates work even if files omit them)
+// NORMALIZE EXERCISES
 // =========================================================================================
 function normalizeExercise(ex){
   const out = { ...ex };
+
+  // upper-body default: require waist visible
+  if (['shoulderAbduction','forwardReach','shoulderFlexionForwardRaise','overheadPress'].includes(ex.criteria)) {
+    if (out.requiresWaist === undefined) out.requiresWaist = true;
+  }
+
   if (ex.criteria === 'shoulderAbduction'){
     if (out.introSticky === undefined) out.introSticky = true;
     if (!out.introText) out.introText = 'Stand up. Keep both shoulders visible. Straighten BOTH elbows to begin.';
     if (!out.introGate) out.introGate = ({ lm }) =>
       elbowsStraightEnough(lm) ? { ok:true } : { ok:false, msg:'Straighten both elbows to begin' };
   }
-  if (ex.criteria === 'forwardReach' || ex.criteria === 'sideReach'){
-    if (out.requiresWaist === undefined) out.requiresWaist = true;
+  if (ex.criteria === 'forwardReach'){
     if (out.introSticky === undefined) out.introSticky = true;
     if (!out.introText) out.introText = 'Stand up. Show your body till the waist. Follow the prompt and hold until it bursts.';
   }
   if (ex.criteria === 'shoulderFlexionForwardRaise'){
     if (!out.introText) out.introText = 'Stand up. Keep both shoulders visible. Put BOTH palms in the ring and hold while it drops to shoulder level.';
-    // no elbow check
+  }
+  if (ex.criteria === 'overheadPress'){
+    if (out.introSticky === undefined) out.introSticky = true;
+    if (!out.introText) out.introText = 'Stand tall. Press BOTH hands overhead, then bring them back to shoulder level.';
   }
   return out;
 }
-exercises = exercises.map(normalizeExercise);
+let exercises = PLAN.map(normalizeExercise);
 
 // =========================================================================================
 // SHOULDER ABDUCTION (Rainbow)
@@ -326,14 +384,13 @@ function drawRainbowStars(){
 
     ctx.save();
     ctx.globalAlpha = s.hit ? 0.18 : 1;
-    ctx.shadowBlur = isCurrent ? 18 : 0;
+    ctx.shadowBlur = (PERF.LOW ? 0 : (isCurrent ? 18 : 0));
     ctx.shadowColor = isCurrent ? s.color : 'transparent';
     ctx.fillStyle = s.color;
     starPath(s.x, s.y, 5, starRadius, starRadius*0.44);
     ctx.fill();
     ctx.lineWidth = 2.1; ctx.strokeStyle = '#fff'; ctx.stroke();
 
-    // ★ PRO font for numbers (outlined)
     const numSize = Math.max(22, starRadius * 1.05);
     ctx.font = `700 ${numSize}px ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial`;
     ctx.textAlign='center'; ctx.textBaseline='middle';
@@ -342,14 +399,11 @@ function drawRainbowStars(){
     ctx.strokeText(String(s.number), s.x, s.y);
     ctx.fillStyle = '#fff';
     ctx.fillText(String(s.number), s.x, s.y);
-
     ctx.restore();
   }
 }
 function updateRainbowBilateralHits(lm, introActive){
-  // block progress if intro is active
   if (introActive) return;
-
   if (!shouldersLevel(lm)) { coach("Make shoulders level"); return; }
   if (!elbowsStraightEnough(lm)) { coach("Straighten both elbows"); return; }
 
@@ -377,7 +431,7 @@ function updateRainbowBilateralHits(lm, introActive){
   if (!ascending && currentStepL<1 && currentStepR<1){
     score += 20; streak++; sessionStarHits = 0;
     incrementRep();
-    if (repCount < (currentExercise?.repetitions_target || 8)) {
+    if (repCount < (currentExercise?.repetitions_target || 2)) {
       coach("Rep done — raise again!");
       setTimeout(()=>{ for (const s of rainbowStars) s.hit=false; ascending=true; currentStepL=0; currentStepR=0; }, 600);
     }
@@ -389,7 +443,7 @@ function updateRainbowBilateralHits(lm, introActive){
 }
 
 // =========================================================================================
-// GENERIC TARGETS (Flexion / Forward Reach / Side Reach)
+// GENERIC TARGETS (Flexion / Front Reach)
 // =========================================================================================
 const NOTE_SPEED_PX_S = 110;
 const POST_HIT_DESPAWN_MS = 650;
@@ -406,12 +460,16 @@ let nextAllowedSpawnAt = 0;
 let combo = 0;
 
 function spawnExplosionParticles(x,y){
-  const parts=[]; for (let i=0;i<16;i++){ const a=(i/16)*Math.PI*2+Math.random()*0.3, sp=2.2+Math.random()*2.2;
-    parts.push({ x,y,vx:Math.cos(a)*sp, vy:Math.sin(a)*sp, life:420+Math.random()*260, born:performance.now() }); }
+  if (PERF.LOW) return []; // disable particles for perf
+  const parts=[]; 
+  for (let i=0;i<16;i++){
+    const a=(i/16)*Math.PI*2+Math.random()*0.3, sp=2.2+Math.random()*2.2;
+    parts.push({ x,y,vx:Math.cos(a)*sp, vy:Math.sin(a)*sp, life:420+Math.random()*260, born:performance.now() });
+  }
   return parts;
 }
 
-// Shapes (ring/star/diamond/target) — colorable + glow
+// Shapes (shadow blur disabled in perf)
 function drawRingShape(s){
   const {x,y} = s; const r = s._rDraw ?? s.r;
   const stroke = s.strokeColor || '#45e0f0';
@@ -419,7 +477,7 @@ function drawRingShape(s){
   const fillGlow = s.fillGlowColor || 'rgba(80,220,240,0.26)';
   const glow = s.glowColor || '#67f7ff';
   ctx.globalAlpha = 1;
-  if (s.inside){ ctx.shadowColor = glow; ctx.shadowBlur = 22; }
+  if (s.inside && !PERF.LOW){ ctx.shadowColor = glow; ctx.shadowBlur = 22; }
   ctx.beginPath(); ctx.arc(x, y, r + 14, 0, Math.PI*2); ctx.fillStyle = s.inside ? fillGlow : fillDim; ctx.fill();
   ctx.lineWidth = Math.max(6, r * 0.22); ctx.strokeStyle = stroke;
   ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.stroke();
@@ -430,7 +488,7 @@ function drawRingShape(s){
 function drawDiamondShape(s){
   const {x,y} = s; const r = s._rDraw ?? s.r;
   ctx.save();
-  if (s.inside){ ctx.shadowColor = '#ffd84a'; ctx.shadowBlur = 26; }
+  if (s.inside && !PERF.LOW){ ctx.shadowColor = '#ffd84a'; ctx.shadowBlur = 26; }
   ctx.beginPath();
   ctx.moveTo(x, y-r);
   ctx.lineTo(x+r, y);
@@ -447,7 +505,7 @@ function drawStarShape(s){
   const fill = s.fillColor || (s.inside ? '#ffd54a' : '#ffef7a');
   const glow = s.glowColor || '#ffd84a';
   ctx.save();
-  if (s.inside){ ctx.shadowColor = glow; ctx.shadowBlur = 22; }
+  if (s.inside && !PERF.LOW){ ctx.shadowColor = glow; ctx.shadowBlur = 22; }
   starPath(x, y, 5, r, r*0.48);
   ctx.fillStyle = fill;
   ctx.fill();
@@ -457,19 +515,22 @@ function drawStarShape(s){
 function drawTargetShape(s){
   const {x,y} = s; const r = s._rDraw ?? s.r;
   ctx.save();
-  if (s.inside){ ctx.shadowColor='#9aff7a'; ctx.shadowBlur=22; }
+  if (s.inside && !PERF.LOW){ ctx.shadowColor='#9aff7a'; ctx.shadowBlur=22; }
   ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.strokeStyle='#aaff88'; ctx.lineWidth=Math.max(6,r*0.18); ctx.stroke();
   ctx.beginPath(); ctx.arc(x,y,r*0.66,0,Math.PI*2); ctx.strokeStyle='#ffffff'; ctx.lineWidth=Math.max(3,r*0.10); ctx.stroke();
   ctx.restore();
 }
 
 function spawnSingleStar(now){
+  // do not spawn for criteria-only or dummy exercises
+  if (currentExercise?.criteria === 'overheadPress' || currentExercise?.dummy) return;
   if (stars.length>0 || now<nextAllowedSpawnAt) return;
 
-  // readiness (also enforced by sticky intro)
   if (latestLm){
-    if (currentExercise?.requiresWaist){
-      if (!(visOK(latestLm[23]) && visOK(latestLm[24]))){ coach('Show body till the waist'); return; }
+    if (currentExercise?.requiresFullBody){
+      if (!fullBodyVisible(latestLm)){ coach('Show your FULL body'); return; }
+    } else if (currentExercise?.requiresWaist){
+      if (!waistVisible(latestLm)){ coach('Show body till the waist'); return; }
     }
     if (typeof currentExercise?.readinessCheck === 'function'){
       const r = currentExercise.readinessCheck({ lm: latestLm, visOK, toPix, shouldersLevel, trunkNotRotated });
@@ -479,7 +540,6 @@ function spawnSingleStar(now){
 
   let target=null;
 
-  // Prefer per-exercise spawner
   if (currentExercise?.getNextTarget && latestLm){
     try {
       target = currentExercise.getNextTarget({
@@ -489,10 +549,8 @@ function spawnSingleStar(now){
     } catch { target = null; }
   }
 
-  // Built-ins (includes pink flexion + both palms)
   if (!target && latestLm){
     const w = canvas.width, h = canvas.height, padX=Math.max(40,w*0.08), padY=Math.max(40,h*0.12);
-
     if (currentExercise?.criteria === 'shoulderFlexionForwardRaise'){
       const LS=latestLm[11], RS=latestLm[12]; if (!visOK(LS) || !visOK(RS)) { coach("Keep both shoulders visible"); return; }
       const sL=toPix(LS), sR=toPix(RS), midX=(sL.x+sR.x)/2, baseY=Math.min(sL.y, sR.y);
@@ -512,10 +570,7 @@ function spawnSingleStar(now){
     } else if (currentExercise?.criteria === 'forwardReach'){
       const LS=latestLm[11], RS=latestLm[12]; if (!visOK(LS) || !visOK(RS)) { coach("Keep both shoulders visible"); return; }
       const sL=toPix(LS), sR=toPix(RS), midX=(sL.x+sR.x)/2, midY=(sL.y+sR.y)/2;
-      const fixed = currentExercise?.fixedHand === 'left' ? 'left' :
-                    currentExercise?.fixedHand === 'right' ? 'right' : null;
-      const leftTurn = fixed ? (fixed === 'left') : (sessionStarHits % 2 === 0);
-
+      const leftTurn = (sessionStarHits % 2 === 0);
       target = {
         x: clamp(midX + (leftTurn? -1:1) * (w*0.22), padX, w-padX),
         y: clamp(midY - h*0.12, padY, h*0.65),
@@ -528,13 +583,11 @@ function spawnSingleStar(now){
     }
   }
 
-  // Final fallback
   if (!target){
     const w = canvas.width, h = canvas.height;
     target = { x:w*0.5, y:h*0.25, label:'PALM', shape:'star', posture:null, required:'palm', holdMs:500 };
   }
 
-  // star
   let baseR = Math.max(38, Math.min(80, canvas.width*0.06));
   if (target.shape === 'ring' || target.shape === 'target') baseR = Math.max(baseR, canvas.width*0.065);
 
@@ -639,7 +692,7 @@ function drawStarsAndUI(now){
     else if (s.shape === 'target') drawTargetShape(s);
     else drawStarShape(s);
 
-    // ★ PRO label font (centered, outlined)
+    // label
     ctx.globalAlpha = 1;
     const fpx = Math.max(20, (s._rDraw||s.r) * 0.65);
     ctx.font = `700 ${fpx}px ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial`;
@@ -663,7 +716,7 @@ function drawStarsAndUI(now){
     ctx.restore();
   }
 
-  // HUD
+  // HUD ribbon
   ctx.save();
   ctx.fillStyle='rgba(0,0,0,0.45)'; ctx.fillRect(10,10,canvas.width-20,44);
   ctx.fillStyle='#fff'; ctx.font='16px ui-monospace,monospace';
@@ -672,105 +725,139 @@ function drawStarsAndUI(now){
   ctx.restore();
 }
 
-function updateCoachAndTargets(lm, dt, now, introActive){
-  if (introActive) return; // block gameplay while intro is active
+// -------- Criteria for Overhead Press
+window.CRITERIA = window.CRITERIA || {};
+const _criteriaState = { overheadPress: { phaseUp:false } };
 
-  const LW = visOK(lm?.[15]) ? toPix(lm[15]) : null;
-  const RW = visOK(lm?.[16]) ? toPix(lm[16]) : null;
-  const LS = visOK(lm?.[11]) ? toPix(lm[11]) : null;
-  const RS = visOK(lm?.[12]) ? toPix(lm[12]) : null;
+function wristsAboveHead(lm){
+  const nose = lm?.[0], LW = lm?.[15], RW = lm?.[16];
+  if (![nose, LW, RW].every(visOK)) return false;
+  return (LW.y < (nose.y - 0.05)) && (RW.y < (nose.y - 0.05));
+}
+function wristsAtShoulders(lm){
+  const LS = lm?.[11], RS = lm?.[12], LW = lm?.[15], RW = lm?.[16];
+  if (![LS, RS, LW, RW].every(visOK)) return false;
+  const top = Math.min(LS.y, RS.y) - 0.03;
+  const bot = Math.max(LS.y, RS.y) + 0.06;
+  return (LW.y>top && LW.y<bot) && (RW.y>top && RW.y<bot);
+}
 
-  const LP = palmPix(lm, 'left');
-  const RP = palmPix(lm, 'right');
-
-  // spawn after gating
-  spawnSingleStar(now);
-
-  for (const s of stars){
-    if (!s.hit){
-      if (s.y < s.targetY) s.y += Math.min(NOTE_SPEED_PX_S * dt, s.targetY - s.y);
-      else s.y += 16 * dt;
-
-      if (s.y > MISS_Y + 30 || (now - s.spawnedAt) > STAR_TTL_MS){
-        stars = []; nextAllowedSpawnAt = now + NEXT_DELAY_MS; coach("Miss — next target"); continue;
-      }
-
-      if (!postureOKWithOverrides(s.posture, lm, s)){ s.inside=false; s.holdStart=0; continue; }
-
-      s.inside = computeInsideWithOverrides(s, LW, RW, LP, RP);
-
-      if (s.behavior === 'descendToShoulder' && LS && RS){
-        const shoulderY = Math.min(LS.y, RS.y);
-        const goalY = shoulderY;
-        if (s.inside){
-          s.y = Math.min(goalY, s.y + DESCEND_SPEED * dt);
-          if (Math.abs(s.y - goalY) < DESCEND_EPS){
-            s.hit=true; s.hitAt=now; lastHitAt=now; s.particles = spawnExplosionParticles(s.x, s.y);
-            score+=15; starCount++; sessionStarHits++; streak++; playDing(); bopMascot();
-            currentExercise?.onStarHit?.(s);
-            incrementRep();
-          } else {
-            coach("Hold your palms on the ring");
-          }
-        } else {
-          s.holdStart=0; coach("Place BOTH palms on the ring");
-        }
-      } else {
-        const needHold = s.holdMs || HOLD_MS_DEFAULT;
-        if (s.inside){
-          if (!s.holdStart) s.holdStart = now;
-          const held = now - s.holdStart;
-          if (held >= needHold && now - lastHitAt > 200){
-            s.hit=true; s.hitAt=now; lastHitAt=now; s.particles = spawnExplosionParticles(s.x, s.y);
-            combo++; score+=15; starCount++; sessionStarHits++; streak++; playDing(); bopMascot();
-            currentExercise?.onStarHit?.(s);
-            if (currentExercise?.repBy !== 'criteria'){
-              incrementRep();
-            } else if (currentExercise?.repBy === 'stars' && currentExercise?.starsPerRep){
-              if (sessionStarHits % currentExercise.starsPerRep === 0) incrementRep();
-            }
-          } else {
-            const sec = Math.max(0, Math.ceil((needHold - held)/100)/10).toFixed(1);
-            coach(`Hold ${sec}s`);
-          }
-        } else { s.holdStart=0; }
-      }
+if (!window.CRITERIA.overheadPress){
+  window.CRITERIA.overheadPress = function(lm){
+    const st = _criteriaState.overheadPress;
+    if (!st.phaseUp){
+      if (wristsAboveHead(lm)){ st.phaseUp = true; status('Good! Return to shoulder level…'); }
+      return null;
     } else {
-      if (now - s.hitAt > POST_HIT_DESPAWN_MS){ stars=[]; nextAllowedSpawnAt = now + NEXT_DELAY_MS; }
+      if (wristsAtShoulders(lm)){ st.phaseUp = false; return { rep_completed:true }; }
+      return null;
     }
-  }
-
-  if (scoreEl) scoreEl.textContent = score;
-  if (streakEl) streakEl.textContent= streak;
-  if (starsEl) starsEl.textContent = starCount;
-  if (!stars.length) coach('');
+  };
 }
 
-// -------- Criteria reps (optional)
-function updateRepsByCriteria(lm){
-  const fn = window.CRITERIA?.[currentExercise?.criteria];
-  if (!fn) return false;
-  const out = fn(lm);
-  if (out && out.rep_completed){
-    score += 10; streak++; playDing(); bopMascot();
-    incrementRep();
-    return true;
-  }
-  return false;
+// =========================================================================================
+// GHOST COACH (stick figure demo, paced by user progress)
+// =========================================================================================
+function ghostProgressOverhead(lm){
+  const nose = lm?.[0], LS=lm?.[11], RS=lm?.[12], LW=lm?.[15], RW=lm?.[16];
+  if (![nose,LS,RS,LW,RW].every(visOK)) return 0.4;
+  const sY = (LS.y+RS.y)/2;
+  const topY = nose.y - 0.05;                     // overhead
+  const wrY = Math.min(LW.y, RW.y);
+  const p = (sY - wrY) / (sY - topY + 1e-6);      // 0 at shoulders, 1 overhead
+  return clamp(p, 0, 1);
 }
+function ghostProgressFrontReach(lm){
+  const LS=lm?.[11], RS=lm?.[12], LW=lm?.[15], RW=lm?.[16];
+  if (![LS,RS,LW,RW].every(visOK)) return 0.4;
+  const shoulderY=(LS.y+RS.y)/2, chestY = shoulderY + 0.07;
+  const wrY = (LW.y+RW.y)/2;
+  const p = (chestY - wrY) / (chestY - (shoulderY - 0.02) + 1e-6); // 0 at chest, 1 just above shoulder line
+  return clamp(p, 0, 1);
+}
+function drawGhostCoach(lm){
+  const W = Math.min(200, canvas.width*0.26), H = Math.min(130, canvas.height*0.26);
+  const x0 = 12, y0 = canvas.height - H - 12;
 
-// -------- Loop
+  ctx.save();
+  // panel
+  ctx.fillStyle = 'rgba(17,24,38,0.7)';
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(x0,y0,W,H,10); else { ctx.rect(x0,y0,W,H); }
+  ctx.fill(); ctx.stroke();
+
+  const cx = x0 + W*0.32, cy = y0 + H*0.62;
+  const scale = H*0.45;
+
+  const id = currentExercise?.criteria;
+  let p = 0.4;
+  if (lm){
+    if (id === 'overheadPress') p = ghostProgressOverhead(lm);
+    else if (id === 'forwardReach') p = ghostProgressFrontReach(lm);
+  }
+  p = clamp(p,0,1);
+
+  // joints
+  const head = {x:cx, y:cy - scale*0.75};
+  const neck = {x:cx, y:cy - scale*0.55};
+  const hip  = {x:cx, y:cy - scale*0.05};
+  const Ls = {x: neck.x - scale*0.20, y: neck.y};
+  const Rs = {x: neck.x + scale*0.20, y: neck.y};
+
+  // arms by exercise
+  const armLen = scale*0.55, foreLen = scale*0.45;
+  let aL=deg2rad(180-50), aR=deg2rad(50);
+  if (id === 'overheadPress'){
+    aL = lerp(deg2rad(180-25), deg2rad(180-90), p);
+    aR = lerp(deg2rad(25),      deg2rad(90),     p);
+  } else if (id === 'forwardReach'){
+    aL = lerp(deg2rad(180-60), deg2rad(180-5), p);
+    aR = lerp(deg2rad(60),     deg2rad(5),     p);
+  }
+
+  const Le = {x: Ls.x + Math.cos(aL)*armLen, y: Ls.y + Math.sin(aL)*armLen};
+  const Re = {x: Rs.x + Math.cos(aR)*armLen, y: Rs.y + Math.sin(aR)*armLen};
+  const Lw = {x: Le.x + Math.cos(aL)*foreLen, y: Le.y + Math.sin(aL)*foreLen};
+  const Rw = {x: Re.x + Math.cos(aR)*foreLen, y: Re.y + Math.sin(aR)*foreLen};
+
+  // skeleton (no shadows)
+  ctx.strokeStyle = '#7ee1ff'; ctx.lineWidth = 3; ctx.lineCap='round';
+  line(neck, hip); circle(head, 8);
+  line(Ls, Le); line(Le, Lw);
+  line(Rs, Re); line(Re, Rw);
+
+  ctx.fillStyle = '#c7d2e0'; ctx.font = '600 12px system-ui, sans-serif';
+  const cap = id==='overheadPress' ? 'Overhead Press' : (id==='forwardReach' ? 'Front Reach' : 'Demo');
+  ctx.textAlign='left'; ctx.fillText(cap, x0+10, y0+16);
+
+  ctx.restore();
+}
+function line(a,b){ ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke(); }
+function circle(c,r){ ctx.beginPath(); ctx.arc(c.x,c.y,r,0,Math.PI*2); ctx.fillStyle='#7ee1ff'; ctx.fill(); }
+function deg2rad(d){ return d*Math.PI/180; }
+function lerp(a,b,t){ return a + (b-a)*clamp(t,0,1); }
+
+// =========================================================================================
+// Loop
+// =========================================================================================
 function renderLoop(){
-  const now = performance.now(), dt = (now - _prevNow)/1000; _prevNow = now;
+  const now = performance.now();
+  if (now - _lastDrawAt < FRAME_MS) { requestAnimationFrame(renderLoop); return; }
+  const dt = (now - _prevNow)/1000; _prevNow = now; _lastDrawAt = now;
+
   drawCameraFrame();
 
-  const introActive = introIsActive(now); // computes & updates sticky visibility
+  // draw ghost first so it’s always visible
+  drawGhostCoach(latestLm);
+
+  const introActive = introIsActive(now);
 
   if (latestLm){
     if (currentExercise?.showShoulderLine) drawShoulderLocator(latestLm);
     if (SHOW_LANDMARKS) drawLandmarks(latestLm);
 
-    // draw intro overlay (on top of video)
     if (introActive) drawIntroOverlay(now);
 
     if (isAbduction()){
@@ -779,7 +866,10 @@ function renderLoop(){
     } else {
       updateCoachAndTargets(latestLm, dt, now, introActive);
       drawStarsAndUI(now);
-      if (!introActive && currentExercise?.repBy === 'criteria') updateRepsByCriteria(latestLm);
+      if (!introActive && currentExercise?.criteria === 'overheadPress') {
+        const out = window.CRITERIA.overheadPress(latestLm);
+        if (out && out.rep_completed){ score += 10; streak++; playDing(); bopMascot(); incrementRep(); }
+      }
     }
   } else {
     if (introActive) drawIntroOverlay(now);
@@ -793,11 +883,21 @@ function renderLoop(){
 function updateExerciseInfo(){
   const name = currentExercise?.name ?? '—';
   const desc = currentExercise?.description ?? '';
-  const reps = currentExercise?.repetitions_target ?? 8;
-  if (exerciseInfoEl) exerciseInfoEl.textContent = `${name}: ${desc}  |  Reps ${repCount}/${reps}`;
+  const reps = currentExercise?.repetitions_target ?? 2;
+
+  const req = currentExercise?.requiresFullBody
+    ? ' (Show FULL body)'
+    : currentExercise?.requiresWaist
+      ? ' (Show till waist)'
+      : '';
+
+  if (exerciseInfoEl) exerciseInfoEl.textContent = `${name}: ${desc}${req}  |  Reps ${repCount}/${reps}`;
   if (repBigEl) repBigEl.textContent = String(repCount);
 }
+function clearDummyTimer(){ if (_dummyTimer){ clearInterval(_dummyTimer); _dummyTimer = null; } }
+
 function resetPerExercise(){
+  clearDummyTimer();
   repCount = 0; sessionStarHits = 0; starCount = 0;
   if (starsEl) starsEl.textContent = '0';
   stars = []; rainbowStars = [];
@@ -806,8 +906,27 @@ function resetPerExercise(){
 
   if (isAbduction()) setupRainbowStars(true);
   updateExerciseInfo();
-  coach('Follow the on-screen target');
+  coach(''); // clear
+
+  // Auto progression for dummies
+  if (currentExercise?.dummy){
+    if (currentExercise?.seconds){
+      let left = currentExercise.repetitions_target;
+      coach(`Keep moving… (${left}s)`);
+      _dummyTimer = setInterval(()=>{
+        left--; setRepUI(currentExercise.repetitions_target - left);
+        coach(`Keep moving… (${left}s)`);
+        if (left<=0){ clearDummyTimer(); goToExercise(currentExerciseIndex+1); }
+      }, 1000);
+    } else {
+      _dummyTimer = setInterval(()=>{
+        setRepUI(repCount+1);
+        if (repCount >= (currentExercise.repetitions_target||2)){ clearDummyTimer(); goToExercise(currentExerciseIndex+1); }
+      }, 900);
+    }
+  }
 }
+function setRepUI(n){ repCount = n; if (repBigEl) repBigEl.textContent = String(repCount); updateExerciseInfo(); }
 
 let _switching = false;
 function goToExercise(index){
@@ -817,13 +936,39 @@ function goToExercise(index){
   currentExerciseIndex = Math.max(0, Math.min(exercises.length-1, index));
   currentExercise = exercises[currentExerciseIndex];
 
-  status(`Exercise: ${currentExercise?.name || ''}`);
+  // Special modes
+  if (currentExercise?.mode === 'LEVEL_BREAK'){
+    if (currentExercise?.nextLevel) setLevelTag(currentExercise.nextLevel);
+    coachBoxEl.textContent = currentExercise.message || 'Great job!';
+    coachBoxEl.style.display = 'block';
+    setTimeout(()=>{ coachBoxEl.style.display='none'; goToExercise(currentExerciseIndex+1); _switching=false; }, currentExercise.delay||1100);
+    return;
+  }
+  if (currentExercise?.mode === 'DAY_DONE'){
+    status(currentExercise.message || 'Done for today!');
+    coachBoxEl.textContent = currentExercise.message || 'Done for today!';
+    coachBoxEl.style.display = 'block';
+    if (nextBtn) nextBtn.disabled = true;
+    _switching=false;
+    return;
+  }
+
+  // Level chip
+  if (typeof currentExercise?.level === 'number') setLevelTag(currentExercise.level);
+
+  // Immediate description
+  const name = currentExercise?.name ?? '—';
+  const desc = currentExercise?.description ?? '';
+  coachBoxEl.textContent = `Next: ${name} — ${desc}`;
+  coachBoxEl.style.display = 'block';
+  setTimeout(()=>{ coachBoxEl.style.display='none'; }, 900);
+
+  status(`Exercise: ${name}`);
   resetPerExercise();
 
-  // show intro (sticky if requested)
   const sticky = !!currentExercise?.introSticky;
-  const text = currentExercise?.introText || `${currentExercise?.name}: ${currentExercise?.description}`;
-  showIntro(text, { sticky, seconds:4.5 });
+  const text = currentExercise?.introText || `${name}: ${desc}`;
+  showIntro(text, { sticky, seconds:4.0 });
 
   if (nextBtn) nextBtn.disabled = (currentExerciseIndex >= exercises.length - 1);
   setTimeout(()=>{ _switching = false; }, 80);
@@ -870,7 +1015,7 @@ async function start(){
     setCanvasSize();
     window.addEventListener('resize', setCanvasSize);
 
-    // Initial intro for first exercise (BEFORE pose loop)
+    // Start Day 1 plan
     goToExercise(0);
 
     renderLoop();
@@ -885,7 +1030,12 @@ async function start(){
     if (!PoseCtor){ status('ERROR: Pose constructor not found'); return; }
 
     pose = new PoseCtor({ locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${f}` });
-    pose.setOptions({ modelComplexity: 1, smoothLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+    pose.setOptions({
+      modelComplexity: PERF.LOW ? 0 : 1,   // lighter model for perf
+      smoothLandmarks: true,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5
+    });
     pose.onResults(({ poseLandmarks })=>{ latestLm = poseLandmarks || null; });
 
     if (typeof Camera === 'function'){
@@ -905,6 +1055,9 @@ async function start(){
 if (startBtn) startBtn.addEventListener('click', start);
 if (nextBtn)  nextBtn.addEventListener('click', ()=> goToExercise(currentExerciseIndex+1));
 
-// init (if auto-start buttonless, call start() elsewhere)
+// init
 updateExerciseInfo();
 status('Ready. Click Start when you are set.');
+
+// no-op if not defined elsewhere
+function drawLandmarks(){ /* optional debug */ }

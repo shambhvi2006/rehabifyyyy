@@ -2,60 +2,74 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Rehabify — Single File Demo</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-
-  <!-- MediaPipe (order matters; no async/defer) -->
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
-
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Day 1</title>
   <link rel="stylesheet" href="style.css" />
+
+  <!-- MediaPipe (camera helper + pose) -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
 </head>
 <body>
-  <header>
-    <h1>Rehabify</h1>
-    <div class="btns">
-      <button id="startBtn" class="pill">Start</button>
-      <button id="nextBtn" class="pill" title="Skip to next exercise">Next Exercise ➜</button>
-    </div>
-  </header>
+  <div class="app">
 
-  <div class="wrap">
-    <div class="stage">
-      <!-- LEFT: HUD -->
-      <div class="panel">
-        <div class="metrics">
-          <div>Score: <span class="big" id="score">0</span></div>
-          <div id="exerciseInfo"></div>
-          <div>Stars: <span class="big" id="stars">0</span></div>
-          <div>Streak: <span class="big" id="streak">0</span></div>
-          <div class="repRow">Reps</div>
-          <div id="repBig" class="repBadge">0</div>
-          <div id="coachBox" class="whiteBox">Tips will appear here…</div>
+    <header class="topbar">
+      <h1>Day 1 <span id="levelTag" class="level-tag">• Level 1</span></h1>
 
-        </div>
-      </div>
+      <div class="hint">Press Start to begin</div>
+    </header>
 
-      <!-- RIGHT: CAMERA + CANVAS -->
-      <div class="canvas-wrap">
-        <!-- keep video in layout (iOS Safari dislikes display:none) -->
-        <video id="video" autoplay muted playsinline></video>
-        <div id="mascot">🕺</div>
+    <main class="stage">
+      <!-- Video + overlay (same IDs your script expects) -->
+      <div class="video-wrap">
+        <video id="video" playsinline muted></video>
         <canvas id="overlay"></canvas>
-        <div class="status" id="status">idle…</div>
       </div>
-    </div>
+
+      <!-- Right-side HUD (same IDs your script expects) -->
+      <aside class="hud">
+        <div class="card">
+          <div class="label">Reps</div>
+          <div id="repBig" class="value big">0</div>
+        </div>
+        <div class="card">
+          <div class="label">Status</div>
+          <div id="status">Ready. Click Start when you are set.</div>
+        </div>
+        <div class="card">
+          <div class="label">Exercise</div>
+          <div id="exerciseInfo">— | Reps 0/8</div>
+        </div>
+
+        <div class="card row">
+          <div>Score: <span id="score">0</span></div>
+          <div>Stars: <span id="stars">0</span></div>
+          <div>Streak: <span id="streak">0</span></div>
+        </div>
+
+        <div id="mascot" class="card">🤖</div>
+        <div id="coachBox" class="toast" style="display:none;"></div>
+      </aside>
+    </main>
+
+    <footer class="controls">
+      <button id="startBtn">▶ Start</button>
+      <button id="nextBtn">Next ⏭</button>
+    </footer>
   </div>
 
-  <!-- shared helpers / criteria -->
-  <script src="criteria.js"></script>
+  <!-- (Optional) your own pose helpers/lib, if you have one -->
+  <!-- <script src="poseDetectionLib.js"></script> -->
 
-<script src="exercises/shoulderAbduction.js"></script>
-<script src="exercises/sideReachRight.js"></script>
-<script src="exercises/sideReachLeft.js"></script>
-<script src="exercises/forwardReach.js"></script>
-<script src="script.js"></script>
+  <!-- Load exercise files FIRST so script.js can use them -->
+  <!-- Keep or rename these to match your actual files -->
+  <script src="shoulder_abduction.js"></script>
+  <script src="front_reach.js"></script>
+  <script src="overhead_press.js"></script>  <!-- NEW upper-body exercise -->
+  <script src="lower_dummy_1.js"></script>   <!-- dummy lower-body -->
+  <script src="lower_dummy_2.js"></script>   <!-- dummy lower-body -->
 
+  <!-- Main app logic (your edited file) -->
+  <script src="script.js"></script>
 </body>
 </html>
