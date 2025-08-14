@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Exercise Explanations</title>
+    <link rel="stylesheet" href="public/style.css">
+</head>
+<body>
+    <div class="app">
+        <h1>Exercise Explanations Test</h1>
+        
+        <div style="margin: 20px 0;">
+            <button onclick="testForwardReachExplanation()">Test Forward Reach Explanation</button>
+            <button onclick="testShoulderAbductionExplanation()">Test Shoulder Abduction Explanation</button>
+            <button onclick="testOverheadPressExplanation()">Test Overhead Press Explanation</button>
+        </div>
+
+        <div style="margin: 20px 0;">
+            <button onclick="testLiveCorrections()">Test Live Corrections System</button>
+        </div>
+
+        <!-- Live Corrections Test Area -->
+        <div class="card corrections-card">
+            <div class="corrections-header">
+                <div class="corrections-title">🎯 Live Coaching Test</div>
+            </div>
+            <div class="corrections-content" id="liveCorrections">
+                <div class="correction-item waiting" id="correctionStatus">
+                    <div class="correction-icon">⏳</div>
+                    <div class="correction-text">Click 'Test Live Corrections System' to begin...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="public/exercise_explanations.js"></script>
+    <script src="public/correction-sidebar.js"></script>
+    
+    <script>
+        // Mock exercise objects
+        const mockExercises = {
+            forwardReach: {
+                criteria: 'forwardReach',
+                name: 'Forward Reach Exercise',
+                description: 'Test exercise',
+                level: 1,
+                repetitions_target: 2
+            },
+            shoulderAbduction: {
+                criteria: 'shoulderAbduction',
+                name: 'Shoulder Abduction Exercise', 
+                description: 'Test exercise',
+                level: 1,
+                repetitions_target: 2
+            },
+            overheadPress: {
+                criteria: 'overheadPress',
+                name: 'Overhead Press Exercise',
+                description: 'Test exercise', 
+                level: 1,
+                repetitions_target: 2
+            }
+        };
+
+        // Mock functions needed by the explanation system
+        window.currentExercise = null;
+        window.currentExplanationOverlay = null;
+        
+        function continueFromExplanation() {
+            if (window.currentExplanationOverlay) {
+                localStorage.setItem(`explanation_seen_${window.currentExercise.criteria}`, 'true');
+                document.body.removeChild(window.currentExplanationOverlay);
+                window.currentExplanationOverlay = null;
+                alert('Exercise would start now!');
+            }
+        }
+        
+        function skipExplanation() {
+            if (window.currentExplanationOverlay) {
+                localStorage.setItem(`explanation_seen_${window.currentExercise.criteria}`, 'true');
+                document.body.removeChild(window.currentExplanationOverlay);
+                window.currentExplanationOverlay = null;
+                alert('Explanation skipped!');
+            }
+        }
+
+        function showExerciseExplanation(exercise) {
+            if (!window.ExerciseExplanations || !window.ExerciseExplanations[exercise.criteria]) {
+                alert('No explanation available for this exercise');
+                return;
+            }
+            
+            const explanation = window.ExerciseExplanations[exercise.criteria];
+            
+            // Build setup instructions
+            let setupHTML = '';
+            if (explanation.detailedInstructions?.setup) {
+                setupHTML = `
+                  <div class="explanation-section">
+                    <h4>🎯 Setup</h4>
+                    <ul class="explanation-list setup-list">
+                      ${explanation.detailedInstructions.setup.map(instruction => `<li>${instruction}</li>`).join('')}
+                    </ul>
+                  </div>
+                `;
+            }
+            
+            // Build execution instructions
+            let executionHTML = '';
+            if (explanation.detailedInstructions?.execution) {
+                executionHTML = `
+                  <div class="explanation-section">
+                    <h4>🏃 Exercise Steps</h4>
+                    <ol class="explanation-list execution-list">
+                      ${explanation.detailedInstructions.execution.map(instruction => `<li>${instruction}</li>`).join('')}
+                    </ol>
+                  </div>
+                `;
+            }
+            
+            // Build key points
+            let keyPointsHTML = '';
+            if (explanation.detailedInstructions?.keyPoints) {
+                keyPointsHTML = `
+                  <div class="explanation-section">
+                    <h4>⭐ Key Points to Remember</h4>
+                    <ul class="explanation-list key-points-list">
+                      ${explanation.detailedInstructions.keyPoints.map(point => `<li><strong>${point}</strong></li>`).join('')}
+                    </ul>
+                  </div>
+                `;
+            }
+            
+            // Build common mistakes section
+            let mistakesHTML = '';
+            if (explanation.commonMistakes) {
+                mistakesHTML = `
+                  <div class="explanation-section">
+                    <h4>⚠️ Common Mistakes to Avoid</h4>
+                    <ul class="explanation-list mistakes-list">
+                      ${explanation.commonMistakes.map(mistake => `<li>${mistake}</li>`).join('')}
+                    </ul>
+                  </div>
+                `;
+            }
+            
+            // Fallback to basic instructions if detailed ones aren't available
+            let basicInstructionsHTML = '';
+            if (!explanation.detailedInstructions?.execution) {
+                basicInstructionsHTML = `
+                  <div class="explanation-section">
+                    <h4>📋 How to Perform</h4>
+                    <ul class="explanation-list">
+                      ${explanation.instructions.map(instruction => `<li>${instruction}</li>`).join('')}
+                    </ul>
+                  </div>
+                `;
+            }
+            
+            // Create explanation overlay with improved structure
+            const overlay = document.createElement('div');
+            overlay.className = 'exercise-explanation-overlay';
+            overlay.innerHTML = `
+                <div class="explanation-card">
+                  <div class="explanation-header">
+                    <h1 class="explanation-title">${explanation.title}</h1>
+                    <p class="explanation-description">${explanation.description}</p>
+                    <div class="requirements-badge">Level ${exercise.level || 1}</div>
+                    <div class="requirements-detail">${explanation.requirementDetail || explanation.requirements}</div>
+                  </div>
+                  
+                  ${setupHTML}
+                  ${executionHTML}
+                  ${basicInstructionsHTML}
+                  ${keyPointsHTML}
+                  ${mistakesHTML}
+                  
+                  <div class="explanation-section">
+                    <h4>💪 Benefits</h4>
+                    <ul class="explanation-list">
+                      ${explanation.benefits.map(benefit => `<li>${benefit}</li>`).join('')}
+                    </ul>
+                  </div>
+                  
+                  <div class="explanation-section">
+                    <h4>🎯 Target: ${explanation.targetReps || exercise.repetitions_target || 2} repetitions</h4>
+                  </div>
+                  
+                  <div class="explanation-actions">
+                    <button class="skip-explanation-btn" onclick="skipExplanation()">Skip Description</button>
+                    <button class="start-exercise-btn" onclick="continueFromExplanation()">I'm Ready - Start Exercise</button>
+                  </div>
+                </div>
+            `;
+            
+            document.body.appendChild(overlay);
+            
+            // Add show animation
+            setTimeout(() => overlay.classList.add('show'), 10);
+            
+            // Store reference for cleanup
+            window.currentExplanationOverlay = overlay;
+        }
+
+        // Test functions
+        function testForwardReachExplanation() {
+            window.currentExercise = mockExercises.forwardReach;
+            showExerciseExplanation(mockExercises.forwardReach);
+        }
+
+        function testShoulderAbductionExplanation() {
+            window.currentExercise = mockExercises.shoulderAbduction;
+            showExerciseExplanation(mockExercises.shoulderAbduction);
+        }
+
+        function testOverheadPressExplanation() {
+            window.currentExercise = mockExercises.overheadPress;
+            showExerciseExplanation(mockExercises.overheadPress);
+        }
+
+        function testLiveCorrections() {
+            if (!window.liveCorrectionSystem) {
+                // Initialize the live correction system
+                window.liveCorrectionSystem = new LiveCorrectionSystem();
+                setTimeout(() => {
+                    testLiveCorrectionsSequence();
+                }, 500);
+            } else {
+                testLiveCorrectionsSequence();
+            }
+        }
+
+        function testLiveCorrectionsSequence() {
+            const corrections = [
+                { type: 'info', message: 'Straighten your left elbow', icon: '📏' },
+                { type: 'warning', message: 'Raise both arms to the same height', icon: '⚖️' },
+                { type: 'success', message: 'Perfect form! Keep it up!', icon: '✨' },
+                { type: 'info', message: 'Move your right arm more to the side', icon: '🔄' },
+                { type: 'success', message: 'Excellent movement!', icon: '💪' }
+            ];
+
+            let index = 0;
+            const showNext = () => {
+                if (index < corrections.length) {
+                    const correction = corrections[index];
+                    window.liveCorrectionSystem.showLiveCorrection(correction.type, correction.message, correction.icon);
+                    index++;
+                    setTimeout(showNext, 3500);
+                } else {
+                    alert('Live corrections test completed!');
+                }
+            };
+
+            showNext();
+        }
+
+        // Global functions
+        window.continueFromExplanation = continueFromExplanation;
+        window.skipExplanation = skipExplanation;
+    </script>
+</body>
+</html>

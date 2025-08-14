@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Camera Test - Rehabify Debug</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background: #1a1a1a;
+            color: white;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        
+        video {
+            width: 100%;
+            max-width: 640px;
+            height: auto;
+            border: 2px solid #333;
+            border-radius: 8px;
+        }
+        
+        button {
+            background: #0066cc;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-size: 16px;
+            cursor: pointer;
+            margin: 10px 5px;
+        }
+        
+        button:hover {
+            background: #0052a3;
+        }
+        
+        button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+        
+        .status {
+            background: #333;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 15px 0;
+            font-family: monospace;
+        }
+        
+        .error { background: #660000; }
+        .success { background: #006600; }
+        .info { background: #000066; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎥 Camera Test for Rehabify</h1>
+        <p>This page will help diagnose camera access issues.</p>
+        
+        <div class="controls">
+            <button id="startCamera">Start Camera</button>
+            <button id="stopCamera" disabled>Stop Camera</button>
+        </div>
+        
+        <div id="status" class="status">Ready to test camera...</div>
+        
+        <video id="video" playsinline muted autoplay style="display: none;"></video>
+        
+        <div id="info" style="margin-top: 20px;">
+            <h3>Browser Information:</h3>
+            <p><strong>User Agent:</strong> <span id="userAgent"></span></p>
+            <p><strong>Location:</strong> <span id="location"></span></p>
+            <p><strong>Protocol:</strong> <span id="protocol"></span></p>
+            <p><strong>MediaDevices Support:</strong> <span id="mediaSupport"></span></p>
+        </div>
+        
+        <div style="margin-top: 20px;">
+            <h3>Common Issues & Solutions:</h3>
+            <ul>
+                <li><strong>Permission Denied:</strong> Click the camera icon in your browser's address bar to allow access</li>
+                <li><strong>Camera in Use:</strong> Close other applications that might be using your camera</li>
+                <li><strong>HTTPS Required:</strong> Make sure you're accessing via localhost (this should be fine)</li>
+                <li><strong>No Camera Found:</strong> Check if your camera is connected and working</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        const video = document.getElementById('video');
+        const startBtn = document.getElementById('startCamera');
+        const stopBtn = document.getElementById('stopCamera');
+        const statusDiv = document.getElementById('status');
+        
+        let stream = null;
+        
+        // Display browser info
+        document.getElementById('userAgent').textContent = navigator.userAgent;
+        document.getElementById('location').textContent = window.location.href;
+        document.getElementById('protocol').textContent = window.location.protocol;
+        document.getElementById('mediaSupport').textContent = 
+            navigator.mediaDevices ? 'Yes ✅' : 'No ❌';
+        
+        function updateStatus(message, type = 'info') {
+            console.log(`[${type.toUpperCase()}] ${message}`);
+            statusDiv.textContent = message;
+            statusDiv.className = `status ${type}`;
+        }
+        
+        async function startCamera() {
+            try {
+                updateStatus('🔍 Checking camera availability...', 'info');
+                
+                if (!navigator.mediaDevices) {
+                    throw new Error('navigator.mediaDevices not available');
+                }
+                
+                if (!navigator.mediaDevices.getUserMedia) {
+                    throw new Error('getUserMedia not supported');
+                }
+                
+                updateStatus('📡 Requesting camera access...', 'info');
+                
+                // Try different camera configurations
+                const configs = [
+                    { video: { facingMode: { ideal: 'user' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
+                    { video: { facingMode: 'user' }, audio: false },
+                    { video: true, audio: false }
+                ];
+                
+                let lastError;
+                for (const config of configs) {
+                    try {
+                        updateStatus(`⚙️ Trying configuration: ${JSON.stringify(config.video)}`, 'info');
+                        stream = await navigator.mediaDevices.getUserMedia(config);
+                        break;
+                    } catch (e) {
+                        lastError = e;
+                        console.log('Config failed:', config, e);
+                    }
+                }
+                
+                if (!stream) {
+                    throw lastError || new Error('All camera configurations failed');
+                }
+                
+                updateStatus('✅ Camera access granted! Setting up video...', 'success');
+                
+                video.srcObject = stream;
+                video.style.display = 'block';
+                
+                // Wait for metadata to load
+                await new Promise((resolve, reject) => {
+                    video.addEventListener('loadedmetadata', resolve, { once: true });
+                    video.addEventListener('error', reject, { once: true });
+                    
+                    // Timeout after 5 seconds
+                    setTimeout(() => reject(new Error('Video metadata loading timeout')), 5000);
+                });
+                
+                await video.play();
+                
+                updateStatus('🎬 Camera is working! Video dimensions: ' + 
+                    video.videoWidth + 'x' + video.videoHeight, 'success');
+                
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+                
+            } catch (error) {
+                console.error('Camera error:', error);
+                
+                let errorMessage = 'Camera Error: ';
+                switch (error.name) {
+                    case 'NotAllowedError':
+                        errorMessage += 'Permission denied. Please allow camera access and try again.';
+                        break;
+                    case 'NotFoundError':
+                        errorMessage += 'No camera found. Please connect a camera.';
+                        break;
+                    case 'NotReadableError':
+                        errorMessage += 'Camera is being used by another application.';
+                        break;
+                    case 'OverconstrainedError':
+                        errorMessage += 'Camera constraints not supported.';
+                        break;
+                    default:
+                        errorMessage += error.message || error;
+                }
+                
+                updateStatus(errorMessage, 'error');
+                
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+            }
+        }
+        
+        function stopCamera() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+            }
+            
+            video.srcObject = null;
+            video.style.display = 'none';
+            
+            updateStatus('📴 Camera stopped.', 'info');
+            
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+        }
+        
+        startBtn.addEventListener('click', startCamera);
+        stopBtn.addEventListener('click', stopCamera);
+        
+        // Check permissions on load
+        if (navigator.permissions) {
+            navigator.permissions.query({ name: 'camera' }).then(result => {
+                updateStatus(`Camera permission status: ${result.state}`, 'info');
+            }).catch(() => {
+                // Permissions API not supported
+            });
+        }
+    </script>
+</body>
+</html>

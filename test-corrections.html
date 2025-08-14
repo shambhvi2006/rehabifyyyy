@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Corrections Test</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: system-ui, sans-serif;
+            background: #111928;
+            color: white;
+        }
+
+        .test-container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .live-corrections {
+            background: rgba(30, 41, 59, 0.8);
+            border: 1px solid rgba(71, 85, 105, 0.3);
+            border-radius: 12px;
+            padding: 16px;
+            margin: 20px 0;
+        }
+
+        .correction-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px;
+            margin: 8px 0;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .correction-item.info {
+            background: rgba(59, 130, 246, 0.1);
+            border-left: 3px solid #3b82f6;
+        }
+
+        .correction-item.warning {
+            background: rgba(245, 158, 11, 0.1);
+            border-left: 3px solid #f59e0b;
+        }
+
+        .correction-item.error {
+            background: rgba(239, 68, 68, 0.1);
+            border-left: 3px solid #ef4444;
+        }
+
+        .correction-item.success {
+            background: rgba(34, 197, 94, 0.1);
+            border-left: 3px solid #22c55e;
+        }
+
+        .correction-item.waiting {
+            background: rgba(107, 114, 128, 0.1);
+            border-left: 3px solid #6b7280;
+        }
+
+        .correction-icon {
+            font-size: 18px;
+            flex-shrink: 0;
+        }
+
+        .correction-text {
+            flex: 1;
+            line-height: 1.4;
+        }
+
+        .test-controls {
+            margin: 20px 0;
+            display: flex;
+            gap: 12px;
+        }
+
+        button {
+            padding: 8px 16px;
+            background: #3b82f6;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+
+        button:hover {
+            background: #2563eb;
+        }
+
+        .status {
+            margin: 20px 0;
+            padding: 16px;
+            background: rgba(55, 65, 81, 0.8);
+            border-radius: 8px;
+        }
+
+        .log {
+            max-height: 200px;
+            overflow-y: auto;
+            background: #000;
+            padding: 16px;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>🧪 Live Correction System Test</h1>
+        
+        <div class="status" id="status">
+            System Status: Loading...
+        </div>
+
+        <div class="test-controls">
+            <button onclick="testCorrections()">Test Corrections</button>
+            <button onclick="testPoseAccess()">Test Pose Access</button>
+            <button onclick="startMockExercise()">Start Mock Exercise</button>
+            <button onclick="clearLog()">Clear Log</button>
+        </div>
+
+        <div class="live-corrections" id="liveCorrections">
+            <h3>📋 Live Corrections</h3>
+            <div class="correction-item waiting">
+                <div class="correction-icon">⏳</div>
+                <div class="correction-text">Test system ready...</div>
+            </div>
+        </div>
+
+        <div class="log" id="log">
+            <div>Test system initialized...</div>
+        </div>
+    </div>
+
+    <script>
+        // Mock global variables
+        window.latestLm = null;
+        window.running = false;
+        window.liveCorrectionSystem = null;
+
+        // Mock pose data
+        const mockPoseData = [
+            // Nose
+            { x: 0.5, y: 0.3, z: 0, visibility: 0.9 },
+            // Eyes, ears, mouth (indices 1-10) - not important for our tests
+            ...Array(10).fill({ x: 0.5, y: 0.3, z: 0, visibility: 0.9 }),
+            // Left shoulder (11)
+            { x: 0.4, y: 0.4, z: 0, visibility: 0.9 },
+            // Right shoulder (12)
+            { x: 0.6, y: 0.4, z: 0, visibility: 0.9 },
+            // Left elbow (13)
+            { x: 0.3, y: 0.5, z: 0, visibility: 0.9 },
+            // Right elbow (14)
+            { x: 0.7, y: 0.5, z: 0, visibility: 0.9 },
+            // Left wrist (15)
+            { x: 0.2, y: 0.6, z: 0, visibility: 0.9 },
+            // Right wrist (16)
+            { x: 0.8, y: 0.6, z: 0, visibility: 0.9 },
+            // More body parts...
+            ...Array(17).fill({ x: 0.5, y: 0.7, z: 0, visibility: 0.9 })
+        ];
+
+        function log(message) {
+            const logEl = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            logEl.innerHTML += `<div>[${timestamp}] ${message}</div>`;
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+
+        function updateStatus(message) {
+            document.getElementById('status').innerHTML = `System Status: ${message}`;
+        }
+
+        function testCorrections() {
+            log('🧪 Testing correction display...');
+            
+            if (!window.liveCorrectionSystem) {
+                log('❌ Live correction system not found');
+                return;
+            }
+
+            // Test different correction types
+            const corrections = [
+                { type: 'info', message: 'Test: Keep your shoulders level', icon: '📐' },
+                { type: 'warning', message: 'Test: Straighten your elbows', icon: '📏' },
+                { type: 'error', message: 'Test: Show your full body', icon: '👀' },
+                { type: 'success', message: 'Test: Great form!', icon: '✨' }
+            ];
+
+            corrections.forEach((correction, index) => {
+                setTimeout(() => {
+                    log(`🎯 Showing ${correction.type} correction: ${correction.message}`);
+                    window.liveCorrectionSystem.showLiveCorrection(correction.type, correction.message, correction.icon);
+                }, index * 2000);
+            });
+        }
+
+        function testPoseAccess() {
+            log('🔍 Testing pose data access...');
+            
+            // Set mock pose data
+            window.latestLm = mockPoseData;
+            window.running = true;
+            
+            log('✅ Mock pose data set');
+            log(`Pose landmarks: ${window.latestLm ? window.latestLm.length : 0} points`);
+            log(`Running state: ${window.running}`);
+            
+            if (window.liveCorrectionSystem) {
+                log('🎯 Triggering pose analysis...');
+                window.liveCorrectionSystem.analyzeCurrentMovement();
+            }
+            
+            updateStatus(`Pose: ${window.latestLm ? 'ACTIVE' : 'NONE'}, Running: ${window.running}`);
+        }
+
+        function startMockExercise() {
+            log('🏃 Starting mock exercise...');
+            
+            if (!window.liveCorrectionSystem) {
+                log('❌ Live correction system not found');
+                return;
+            }
+
+            const mockExercise = {
+                criteria: 'shoulderAbduction',
+                name: 'Shoulder Abduction Test',
+                requiresWaist: true
+            };
+
+            window.liveCorrectionSystem.startExercise(mockExercise);
+            
+            // Set up continuous analysis
+            window.latestLm = mockPoseData;
+            window.running = true;
+            
+            log('✅ Mock exercise started');
+            updateStatus('Mock Exercise: ACTIVE');
+        }
+
+        function clearLog() {
+            document.getElementById('log').innerHTML = '<div>Log cleared...</div>';
+        }
+
+        // Initialize test system
+        window.addEventListener('DOMContentLoaded', () => {
+            log('🚀 Test system loading...');
+            
+            // Load the live correction system
+            const script = document.createElement('script');
+            script.src = './correction-sidebar.js';
+            script.onload = () => {
+                log('✅ Correction system script loaded');
+                
+                // Create instance manually for testing
+                setTimeout(() => {
+                    if (window.LiveCorrectionSystem) {
+                        window.liveCorrectionSystem = new window.LiveCorrectionSystem();
+                        log('✅ Live correction system created');
+                        updateStatus('READY');
+                    } else {
+                        log('❌ LiveCorrectionSystem class not found');
+                        updateStatus('ERROR - Class not found');
+                    }
+                }, 100);
+            };
+            script.onerror = () => {
+                log('❌ Failed to load correction system script');
+                updateStatus('ERROR - Script load failed');
+            };
+            document.head.appendChild(script);
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rehabify - Level Up!</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app">
+        <div class="levelup-container">
+            <div class="celebration-background">
+                <div class="floating-emoji">🎉</div>
+                <div class="floating-emoji">⭐</div>
+                <div class="floating-emoji">💪</div>
+                <div class="floating-emoji">🏆</div>
+                <div class="floating-emoji">✨</div>
+                <div class="floating-emoji">🎊</div>
+            </div>
+            
+            <div class="levelup-content">
+                <div class="level-badge">
+                    <div class="level-number" id="newLevel">2</div>
+                    <div class="level-text">LEVEL</div>
+                </div>
+                
+                <h1 class="levelup-title">🎉 CONGRATULATIONS! 🎉</h1>
+                
+                <div class="achievement-message">
+                    <p class="main-message">You've successfully completed Level 1!</p>
+                    <p class="sub-message">Your dedication to rehabilitation is paying off. Ready for the next challenge?</p>
+                </div>
+                
+                <div class="progress-summary">
+                    <div class="summary-card">
+                        <div class="summary-icon">💪</div>
+                        <div class="summary-text">
+                            <div class="summary-title">Exercises Completed</div>
+                            <div class="summary-value" id="exercisesCompleted">4</div>
+                        </div>
+                    </div>
+                    
+                    <div class="summary-card">
+                        <div class="summary-icon">⭐</div>
+                        <div class="summary-text">
+                            <div class="summary-title">Stars Earned</div>
+                            <div class="summary-value" id="starsEarned">127</div>
+                        </div>
+                    </div>
+                    
+                    <div class="summary-card">
+                        <div class="summary-icon">🔥</div>
+                        <div class="summary-text">
+                            <div class="summary-title">Max Streak</div>
+                            <div class="summary-value" id="maxStreak">18</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="next-level-preview">
+                    <h3>What's Next in Level 2?</h3>
+                    <div class="preview-items">
+                        <div class="preview-item">
+                            <span class="preview-icon">💪</span>
+                            <span class="preview-text">Advanced Upper Body</span>
+                        </div>
+                        <div class="preview-item">
+                            <span class="preview-icon">🎯</span>
+                            <span class="preview-text">Higher Rep Targets</span>
+                        </div>
+                        <div class="preview-item">
+                            <span class="preview-icon">⭐</span>
+                            <span class="preview-text">Increased Challenge</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="action-buttons">
+                    <button id="continueBtn" class="continue-btn">
+                        <span class="btn-text">Continue to Level 2</span>
+                        <span class="btn-arrow">→</span>
+                    </button>
+                    <button id="takeBreakBtn" class="break-btn">Take a Break</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="levelup.js"></script>
+</body>
+</html>

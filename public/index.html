@@ -3,8 +3,9 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Day 1</title>
+  <title>Rehabify - Gamified Rehabilitation</title>
   <link rel="stylesheet" href="style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏃</text></svg>" />
 
   <!-- MediaPipe (camera helper + pose) -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
@@ -14,12 +15,17 @@
   <div class="app">
 
     <header class="topbar">
-      <h1>Day 1 <span id="levelTag" class="level-tag">• Level 1</span></h1>
-
-      <div class="hint">Press Start to begin</div>
+      <div class="title-section">
+        <h1>🏃 Rehabify</h1>
+        <div class="subtitle">Gamified Rehabilitation Therapy</div>
+      </div>
+      <div class="level-section">
+        <span id="levelTag" class="level-tag">• Level 1</span>
+        <div class="hint">Press Start to begin your journey</div>
+      </div>
     </header>
 
-    <main class="stage">
+    <main class="stage-with-sidebar">
       <!-- Video + overlay (same IDs your script expects) -->
       <div class="video-wrap">
         <video id="video" playsinline muted></video>
@@ -41,16 +47,97 @@
           <div id="exerciseInfo">— | Reps 0/8</div>
         </div>
 
-        <div class="card row">
-          <div>Score: <span id="score">0</span></div>
-          <div>Stars: <span id="stars">0</span></div>
-          <div>Streak: <span id="streak">0</span></div>
+        <div class="card counters-card">
+          <div class="counter-grid">
+            <div class="counter-item">
+              <div class="counter-label">Stars</div>
+              <div class="counter-value" id="stars">0</div>
+            </div>
+            <div class="counter-item">
+              <div class="counter-label">Streak</div>
+              <div class="counter-value" id="streak">0</div>
+            </div>
+            <div class="counter-item">
+              <div class="counter-label">Score</div>
+              <div class="counter-value" id="score">0</div>
+            </div>
+          </div>
         </div>
 
-        <div id="mascot" class="card">🤖</div>
+        <!-- Live Corrections Section -->
+        <div class="card corrections-card">
+          <div class="corrections-header">
+            <div class="corrections-title">🎯 Live Coaching</div>
+          </div>
+          <div class="corrections-content" id="liveCorrections">
+            <div class="correction-item waiting" id="correctionStatus">
+              <div class="correction-icon">⏳</div>
+              <div class="correction-text">Ready to start...</div>
+            </div>
+          </div>
+        </div>
+
+        <div id="mascot" class="card mascot-card" style="display: none;">
+          <div class="mascot-emoji">🤖</div>
+          <div class="mascot-label">AI Coach</div>
+        </div> 
         <div id="coachBox" class="toast" style="display:none;"></div>
+
+       
+        <div id="stickFigurePanel" class="card stick-figure-panel" style="display: none;">
+          <div class="panel-header" style="display: none;">Exercise Demo</div> 
+          <canvas id="stickFigureCanvas" width="200" height="120"></canvas>
+        </div>
       </aside>
     </main>
+
+    <!-- Exercise Correction Sidebar -->
+    <aside class="correction-sidebar" id="correctionSidebar">
+      <div class="sidebar-header">
+        <h3>🎯 Live Coaching</h3>
+        <button class="sidebar-toggle" id="sidebarToggle">✕</button>
+      </div>
+      
+      <div class="sidebar-content">
+        <div class="current-exercise-info">
+          <div class="exercise-name" id="sidebarExerciseName">Ready to Start</div>
+          <div class="exercise-progress" id="sidebarProgress">Click Start to begin</div>
+        </div>
+        
+        <div class="corrections-panel">
+          <div class="corrections-header">
+            <h4>📋 Form Corrections</h4>
+          </div>
+          <div class="corrections-list" id="correctionsList">
+            <div class="correction-item waiting">
+              <div class="correction-icon">⏳</div>
+              <div class="correction-text">Waiting for exercise to start...</div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="tips-panel">
+          <div class="tips-header">
+            <h4>💡 Pro Tips</h4>
+          </div>
+          <div class="tips-list" id="tipsList">
+            <div class="tip-item">
+              <div class="tip-icon">✨</div>
+              <div class="tip-text">Position yourself so your entire upper body is visible</div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="motivation-panel">
+          <div class="motivation-header">
+            <h4>🌟 Motivation</h4>
+          </div>
+          <div class="motivation-text" id="motivationText">
+            You're doing great! Every rep brings you closer to your goals.
+          </div>
+        </div>
+      </div>
+    </aside>
 
     <footer class="controls">
       <button id="startBtn">▶ Start</button>
@@ -62,13 +149,17 @@
   <!-- <script src="poseDetectionLib.js"></script> -->
 
   <!-- Load exercise files FIRST so script.js can use them -->
-  <!-- Keep or rename these to match your actual files -->
+  <script src="exercise_explanations.js"></script>
   <script src="shoulder_abduction.js"></script>
   <script src="front_reach.js"></script>
-  <script src="overhead_press.js"></script>  <!-- NEW upper-body exercise -->
-  <script src="lower_dummy_1.js"></script>   <!-- dummy lower-body -->
-  <script src="lower_dummy_2.js"></script>   <!-- dummy lower-body -->
+  <script src="overhead_press.js"></script>
+  <script src="lower_dummy_1.js"></script>   <!-- Mini squats -->
+  <script src="lower_dummy_2.js"></script>   <!-- Marching in place -->
+  <script src="heel_raises.js"></script>     <!-- Heel raises -->
 
+  <!-- Correction sidebar system -->
+  <script src="correction-sidebar.js"></script>
+  
   <!-- Main app logic (your edited file) -->
   <script src="script.js"></script>
 </body>

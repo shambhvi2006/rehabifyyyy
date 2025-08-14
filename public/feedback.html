@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rehabify - Workout Feedback</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="app">
+        <header class="topbar">
+            <div class="title-section">
+                <h1>🏃 Rehabify</h1>
+                <div class="subtitle">Workout Complete - Your Feedback</div>
+            </div>
+            <div class="level-section">
+                <span class="level-tag level-2">• Session Complete</span>
+            </div>
+        </header>
+
+        <main class="feedback-container">
+            <div class="feedback-section">
+                <div class="congratulations-card">
+                    <div class="congrats-emoji">🎉</div>
+                    <h2>Congratulations!</h2>
+                    <p>You've completed your rehabilitation session. Your feedback helps us improve your experience.</p>
+                </div>
+
+                <form id="feedbackForm" class="feedback-form">
+                    <div class="question-card">
+                        <h3>How did you feel during this workout?</h3>
+                        <div class="mood-selector">
+                            <label class="mood-option">
+                                <input type="radio" name="feeling" value="1">
+                                <div class="mood-face">😫</div>
+                                <span>Very Difficult</span>
+                            </label>
+                            <label class="mood-option">
+                                <input type="radio" name="feeling" value="2">
+                                <div class="mood-face">😰</div>
+                                <span>Challenging</span>
+                            </label>
+                            <label class="mood-option">
+                                <input type="radio" name="feeling" value="3">
+                                <div class="mood-face">😐</div>
+                                <span>Moderate</span>
+                            </label>
+                            <label class="mood-option">
+                                <input type="radio" name="feeling" value="4">
+                                <div class="mood-face">😊</div>
+                                <span>Good</span>
+                            </label>
+                            <label class="mood-option">
+                                <input type="radio" name="feeling" value="5">
+                                <div class="mood-face">😄</div>
+                                <span>Great!</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="question-card">
+                        <h3>How would you rate the workout intensity?</h3>
+                        <div class="rating-slider">
+                            <input type="range" id="intensity" name="intensity" min="1" max="10" value="5">
+                            <div class="slider-labels">
+                                <span>Too Easy</span>
+                                <span id="intensityValue">5</span>
+                                <span>Too Hard</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="question-card">
+                        <h3>How much did you enjoy the exercises?</h3>
+                        <div class="star-rating">
+                            <span class="star" data-rating="1">⭐</span>
+                            <span class="star" data-rating="2">⭐</span>
+                            <span class="star" data-rating="3">⭐</span>
+                            <span class="star" data-rating="4">⭐</span>
+                            <span class="star" data-rating="5">⭐</span>
+                        </div>
+                        <input type="hidden" name="enjoyment" id="enjoymentRating" value="0">
+                    </div>
+
+                    <div class="question-card">
+                        <h3>Any comments or suggestions?</h3>
+                        <textarea name="comments" placeholder="Tell us about your experience..." rows="4"></textarea>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="submit" class="submit-btn">Submit Feedback</button>
+                        <button type="button" class="skip-btn">Skip</button>
+                    </div>
+                </form>
+            </div>
+
+            <div class="progress-section">
+                <div class="progress-card">
+                    <h3>📈 Your Weekly Progress</h3>
+                    <div class="chart-container">
+                        <canvas id="progressChart" width="400" height="200"></canvas>
+                    </div>
+                </div>
+
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-number">7</div>
+                        <div class="stat-label">Sessions Completed</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number">98%</div>
+                        <div class="stat-label">Accuracy Rate</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number">4.2</div>
+                        <div class="stat-label">Avg Mood Rating</div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <footer class="controls">
+            <button id="homeBtn">🏠 Home</button>
+            <button id="restartBtn">🔄 New Session</button>
+        </footer>
+    </div>
+
+    <script src="feedback.js"></script>
+</body>
+</html>
