@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Rehabify — Single File Demo</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+
+  <!-- MediaPipe (order matters; no async/defer) -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
+
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>Rehabify</h1>
+    <div class="btns">
+      <button id="startBtn" class="pill">Start</button>
+      <button id="nextBtn" class="pill" title="Skip to next exercise">Next Exercise ➜</button>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <div class="stage">
+      <!-- LEFT: HUD -->
+      <div class="panel">
+        <div class="metrics">
+          <div>Score: <span class="big" id="score">0</span></div>
+          <div id="exerciseInfo"></div>
+          <div>Stars: <span class="big" id="stars">0</span></div>
+          <div>Streak: <span class="big" id="streak">0</span></div>
+          <div class="repRow">Reps</div>
+          <div id="repBig" class="repBadge">0</div>
+          <div id="coachBox" class="whiteBox">Tips will appear here…</div>
+
+        </div>
+      </div>
+
+      <!-- RIGHT: CAMERA + CANVAS -->
+      <div class="canvas-wrap">
+        <!-- keep video in layout (iOS Safari dislikes display:none) -->
+        <video id="video" autoplay muted playsinline></video>
+        <div id="mascot">🕺</div>
+        <canvas id="overlay"></canvas>
+        <div class="status" id="status">idle…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- shared helpers / criteria -->
+  <script src="criteria.js"></script>
+
+<script src="exercises/shoulderAbduction.js"></script>
+<script src="exercises/sideReachRight.js"></script>
+<script src="exercises/sideReachLeft.js"></script>
+<script src="exercises/forwardReach.js"></script>
+<script src="script.js"></script>
+
+</body>
+</html>

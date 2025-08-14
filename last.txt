@@ -1,0 +1,673 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Rehabify — Single File Demo</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+
+  <!-- MediaPipe (order matters; no async/defer) -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
+
+  <style>
+    :root { --bg:#0b1220; --panel:#0f172a; --text:#e5e7eb; --accent:#22c55e; --muted:#94a3b8; }
+    *{box-sizing:border-box} body{margin:0;font-family:system-ui,Segoe UI,Roboto,Arial;background:#0b1220;color:var(--text)}
+    header{position:sticky;top:0;display:flex;gap:10px;justify-content:space-between;align-items:center;background:#0d1324;padding:14px 18px}
+    .wrap{max-width:1100px;margin:0 auto;padding:18px}
+    .stage{position:relative;display:grid;grid-template-columns:300px 1fr;gap:18px}
+    .panel{background:var(--panel);border-radius:16px;padding:14px}
+    .metrics{line-height:1.8} .big{font-weight:700}
+    .canvas-wrap{position:relative}
+    #overlay{width:min(90vw,750px);height:auto;background:#000;border-radius:16px;display:block}
+    /* IMPORTANT: keep the <video> in the layout (iOS Safari hates display:none) */
+    #video{
+      position:absolute; left:-9999px; top:-9999px;
+      width:1px; height:1px; opacity:0; pointer-events:none;
+    }
+    #mascot{position:absolute;top:12px;right:14px;font-size:56px;pointer-events:none;transform-origin:center}
+    @keyframes bop{0%{transform:translateY(0) rotate(0)}50%{transform:translateY(-10px) rotate(-6deg)}100%{transform:translateY(0) rotate(0)}}
+    #mascot.celebrate{animation:bop .4s ease}
+    .pill{border:0;padding:10px 14px;border-radius:12px;background:var(--accent);color:#081018;cursor:pointer;font-weight:600}
+    .status{position:absolute;left:12px;top:12px;background:rgba(0,0,0,.55);padding:8px 10px;border-radius:10px;font:12px/1.5 ui-monospace,monospace}
+    .btns{display:flex;gap:10px}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Rehabify</h1>
+    <div class="btns">
+      <button id="startBtn" class="pill">Start</button>
+      <button id="nextBtn" class="pill" title="Skip to next exercise">Next Exercise ➜</button>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <div class="stage">
+      <!-- LEFT: HUD -->
+      <div class="panel">
+        <div class="metrics">
+          <div>Score: <span class="big" id="score">0</span></div>
+          <div id="exerciseInfo"></div>
+          <div>Stars: <span class="big" id="stars">0</span></div>
+          <div>Streak: <span class="big" id="streak">0</span></div>
+          <!-- energy removed on purpose -->
+        </div>
+      </div>
+
+      <!-- RIGHT: CAMERA + CANVAS -->
+      <div class="canvas-wrap">
+        <video id="video" autoplay muted playsinline></video>
+        <div id="mascot">🕺</div>
+        <canvas id="overlay"></canvas>
+        <div class="status" id="status">idle…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- your globals -->
+  <script src="criteria.js"></script>
+  <script src="exercises.js"></script>
+  <!-- keep criteria.js -->
+
+<!-- NEW: each exercise file adds itself to window.Exercises -->
+<script src="exercises/shoulderAbduction.js"></script>
+<script src="exercises/shoulderFlexionForwardRaise.js"></script>
+<script src="exercises/forwardReach.js"></script>
+<script src="exercises/lateralReach.js"></script>
+<script src="exercises/marchingInPlace.js"></script>
+
+<script>
+  // Build the array your existing code expects:
+  window.exercises = Object.values(window.Exercises || {});
+</script>
+
+
+  <script>
+    // ---------- DOM
+    const video   = document.getElementById('video');
+    const canvas  = document.getElementById('overlay');
+    const ctx     = canvas.getContext('2d');
+    const startBtn= document.getElementById('startBtn');
+    const nextBtn = document.getElementById('nextBtn');
+    const scoreEl = document.getElementById('score');
+    const starsEl = document.getElementById('stars');
+    const streakEl= document.getElementById('streak');
+    const mascot  = document.getElementById('mascot');
+    const statusEl= document.getElementById('status');
+    const exerciseInfoEl = document.getElementById('exerciseInfo');
+    const status = msg => { statusEl.textContent = msg; console.log(msg); };
+
+    // ---------- STATE
+    let score=0, streak=0, running=false;
+    let starCount=0, sessionStarHits=0;
+    let latestLm = null;
+
+    let currentExerciseIndex = 0;
+    let repCount = 0;
+    let currentExercise = (window.exercises||[])[currentExerciseIndex];
+
+    const VIS_THRESH=0.25;
+
+    // ---------- AUDIO
+    let audioCtx=null;
+    const initAudio = ()=>{ if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)(); }
+    function playDing(){
+      if (!audioCtx) return;
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.type='sine'; o.frequency.value=880; o.connect(g); g.connect(audioCtx.destination);
+      const t = audioCtx.currentTime;
+      g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(0.6,t+0.01); g.gain.exponentialRampToValueAtTime(0.0001,t+0.25);
+      o.start(t); o.stop(t+0.26);
+    }
+
+    // ---------- CANVAS
+    function setCanvasSize(){
+      canvas.width=video.videoWidth || canvas.clientWidth || 640;
+      canvas.height=video.videoHeight || canvas.clientHeight || 480;
+      MISS_Y = canvas.height * MISS_Y_FRAC;
+      if (currentExercise?.criteria === 'shoulderAbduction') setupRainbowStars(true);
+    }
+    function drawCameraFrame(){
+      if (video.readyState >= 2) {
+        ctx.save(); ctx.scale(-1,1);
+        ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
+        ctx.restore();
+      }
+    }
+
+    // ---------- LM utils
+    const visOK = p => !!p && (p.visibility===undefined || p.visibility>=VIS_THRESH);
+    function toPix(p){ return { x:(1-p.x)*canvas.width, y:p.y*canvas.height, c:(p.visibility ?? 1) }; }
+    function dist(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
+    function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
+    function angleDeg(a,b,c){
+      const bax=a.x-b.x, bay=a.y-b.y, bcx=c.x-b.x, bcy=c.y-b.y;
+      const dot=bax*bcx+bay*bcy, den=Math.hypot(bax,bay)*Math.hypot(bcx,bcy);
+      if (!den) return 180;
+      return Math.acos(Math.max(-1,Math.min(1,dot/den)))*180/Math.PI;
+    }
+    function lineAngle(a,b){ return Math.atan2(b.y-a.y, b.x-a.x)*180/Math.PI; }
+
+    function drawLandmarks(lms){
+      if (!lms) return;
+      ctx.fillStyle='#FFC0CB';
+      for (const p of lms){ const q=toPix(p); ctx.beginPath(); ctx.arc(q.x, q.y, 3, 0, Math.PI*2); ctx.fill(); }
+      if (lms[15]){ const q=toPix(lms[15]); ctx.beginPath(); ctx.arc(q.x,q.y,6,0,Math.PI*2); ctx.fill(); }
+      if (lms[16]){ const q=toPix(lms[16]); ctx.beginPath(); ctx.arc(q.x,q.y,6,0,Math.PI*2); ctx.fill(); }
+    }
+
+    function bopMascot(){ mascot.classList.remove('celebrate'); void mascot.offsetWidth; mascot.classList.add('celebrate'); }
+
+    // =========================================================================================
+    // SHOULDER LOCATOR OVERLAY (for shoulder-based work)
+    // =========================================================================================
+    function drawShoulderLocator(lm){
+      const LS = lm?.[11], RS = lm?.[12];
+      if (!visOK(LS) || !visOK(RS)) return false;
+      const sL = toPix(LS), sR = toPix(RS);
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(sL.x, sL.y); ctx.lineTo(sR.x, sR.y); ctx.stroke();
+      // glowing dots
+      for (const p of [sL, sR]){
+        ctx.shadowColor = '#66e3ff';
+        ctx.shadowBlur = 16;
+        ctx.fillStyle = '#66e3ff';
+        ctx.beginPath(); ctx.arc(p.x, p.y, 7, 0, Math.PI*2); ctx.fill();
+      }
+      ctx.restore();
+      return {sL, sR};
+    }
+
+    // =========================================================================================
+    // RAINBOW (shoulder abduction)
+    // =========================================================================================
+    const SIDE = { L:'left', R:'right' };
+    let rainbowStars = [];
+    let ascending = true;
+    let starRadius = 44;
+    let currentStepL = 0, currentStepR = 0;
+
+    function starPath(cx, cy, spikes, outerR, innerR, rotation=-Math.PI/2){
+      const step = Math.PI / spikes; ctx.beginPath();
+      for (let i=0;i<spikes*2;i++){
+        const r = (i%2===0) ? outerR : innerR, a = i*step + rotation;
+        const x = cx + Math.cos(a)*r, y = cy + Math.sin(a)*r;
+        if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+      } ctx.closePath();
+    }
+
+    function setupRainbowStars(first=false){
+      const N = 4;
+      const pad = Math.max(30, canvas.width*0.04);
+      const baseY   = clamp(canvas.height*0.78, pad, canvas.height-pad);
+      const topY    = clamp(canvas.height*0.19, pad, canvas.height-pad);
+      const midY    = (baseY + topY)/2;
+      const arcRadius = clamp(canvas.width*0.28, 80, canvas.width*0.40);
+      const cxL = clamp(canvas.width*0.29, pad, canvas.width-pad);
+      const cxR = clamp(canvas.width*0.715, pad, canvas.width-pad);
+      starRadius = clamp(canvas.width*0.023, 22, 44);
+
+      rainbowStars = [];
+      const deg = Math.PI/180, thetaStart=115*deg, thetaEnd=65*deg;
+
+      for (let i=0;i<N;i++){
+        const t = thetaStart + (thetaEnd-thetaStart)*(i/(N-1));
+        rainbowStars.push({ x: clamp(cxL + arcRadius*Math.cos(t), pad, canvas.width-pad), y: clamp(midY - arcRadius*Math.sin(t), pad, canvas.height-pad), hit:false, number:i+1, side:SIDE.L, color:'#4da3ff' });
+        rainbowStars.push({ x: clamp(cxR - arcRadius*Math.cos(t), pad, canvas.width-pad), y: clamp(midY - arcRadius*Math.sin(t), pad, canvas.height-pad), hit:false, number:i+1, side:SIDE.R, color:'#ff6fb0' });
+      }
+      ascending = true;
+      currentStepL = 0; currentStepR = 0;
+      if (first) sessionStarHits = 0;
+      status("Raise both arms to burst stars 1→4!");
+    }
+
+    function drawRainbowStars(){
+      for (let i=0;i<rainbowStars.length;i++){
+        const s = rainbowStars[i];
+        const isCurrent =
+          (s.side===SIDE.L && i%2===0 && i/2===currentStepL && !s.hit) ||
+          (s.side===SIDE.R && i%2===1 && (i-1)/2===currentStepR && !s.hit);
+
+        ctx.save();
+        ctx.globalAlpha = s.hit ? 0.18 : 1;
+        ctx.shadowColor = isCurrent ? s.color : 'rgba(0,0,0,0)';
+        ctx.shadowBlur = isCurrent ? 30 : 0;
+        ctx.fillStyle = s.color;
+        starPath(s.x, s.y, 5, starRadius, starRadius*0.44);
+        ctx.fill();
+        ctx.shadowBlur = 0; ctx.lineWidth = 2.1; ctx.strokeStyle = '#fff'; ctx.stroke();
+        ctx.fillStyle = '#fff'; ctx.font = `bold ${starRadius}px sans-serif`; ctx.textAlign='center'; ctx.textBaseline='middle';
+        ctx.fillText(s.number, s.x, s.y);
+        ctx.restore();
+      }
+    }
+
+    function elbowsStraightEnough(lm){
+      const Ls=lm[11], Le=lm[13], Lw=lm[15], Rs=lm[12], Re=lm[14], Rw=lm[16];
+      if (![Ls,Le,Lw,Rs,Re,Rw].every(visOK)) return false;
+      const leftAng  = angleDeg(toPix(Ls), toPix(Le), toPix(Lw));
+      const rightAng = angleDeg(toPix(Rs), toPix(Re), toPix(Rw));
+      return leftAng>150 && rightAng>150;
+    }
+    function shouldersLevel(lm, tolDeg=10){
+      const LS=lm[11], RS=lm[12];
+      if(!visOK(LS) || !visOK(RS)) return false;
+      const a = lineAngle(toPix(LS), toPix(RS));
+      return Math.abs(a) <= tolDeg;
+    }
+
+    function updateRainbowBilateralHits(lm){
+      if (!shouldersLevel(lm)) { status("Make shoulders level (stand tall, square to camera)"); return; }
+      if (!elbowsStraightEnough(lm)) { status("Straighten both elbows a bit more"); return; }
+
+      const leftW  = lm[15], rightW = lm[16];
+      const idxL = 0 + currentStepL*2, targetL = rainbowStars[idxL];
+      if (targetL && visOK(leftW) && dist(toPix(leftW), targetL) <= starRadius + 30 && !targetL.hit){
+        targetL.hit = true; sessionStarHits++; starCount++; score += 5; streak++;
+        playDing(); bopMascot(); currentStepL += (ascending? 1 : -1);
+      }
+      const idxR = 1 + currentStepR*2, targetR = rainbowStars[idxR];
+      if (targetR && visOK(rightW) && dist(toPix(rightW), targetR) <= starRadius + 30 && !targetR.hit){
+        targetR.hit = true; sessionStarHits++; starCount++; score += 5; streak++;
+        playDing(); bopMascot(); currentStepR += (ascending? 1 : -1);
+      }
+
+      if (ascending && currentStepL>=4 && currentStepR>=4){
+        ascending=false; currentStepL=3; currentStepR=3;
+        status("Nice! Now lower both arms and catch 4→1.");
+        for (const s of rainbowStars) s.hit=false;
+      }
+      if (!ascending && currentStepL<1 && currentStepR<1){
+        repCount++; score += 20; streak++;
+        updateExerciseInfo();
+        if (repCount >= (currentExercise.repetitions_target || 8)){
+          goToExercise(currentExerciseIndex+1);
+        } else {
+          status("Rainbow rep done! Raise again to start a new rep.");
+          setTimeout(()=>{ for (const s of rainbowStars) s.hit=false; ascending=true; currentStepL=0; currentStepR=0; }, 900);
+        }
+      }
+
+      scoreEl.textContent=score; streakEl.textContent=streak; starsEl.textContent=starCount;
+    }
+
+    // =========================================================================================
+    // PATTERNED STARS FOR OTHER EXERCISES
+    // =========================================================================================
+    const NOTE_SPEED_PX_S = 100;
+    const MISS_Y_FRAC = 0.60;
+    let MISS_Y = 300;
+    const HIT_GRACE_FRAMES = 2;
+    const POST_HIT_DESPAWN_MS = 700;
+    const NEXT_DELAY_MS = 280;
+
+    let stars = [];
+    let lastHitAt = 0;
+    let feedbackMsg = '';
+    let combo = 0;
+    let nextAllowedSpawnAt = 0;
+
+    function getNextTarget(lm){
+      const w = canvas.width, h = canvas.height;
+      const padX = Math.max(40, w*0.08), padY = Math.max(40, h*0.12);
+
+      if (currentExercise?.criteria === 'shoulderFlexionForwardRaise'){
+        const LS=lm[11], RS=lm[12];
+        if (!visOK(LS) || !visOK(RS)){ status("We can’t see your shoulders — face camera"); return null; }
+        const sL=toPix(LS), sR=toPix(RS), midX=(sL.x+sR.x)/2, baseY=Math.min(sL.y, sR.y);
+        const heights = [0.16, 0.24, 0.32];
+        const step = (repCount*3 + sessionStarHits)%heights.length;
+        const y = clamp(baseY - h*heights[step], padY, h*0.5);
+        return { x: clamp(midX, padX, w-padX), y, label:'Reach up', kind:'wrist', posture:'shouldersLevel' };
+      }
+
+      if (currentExercise?.criteria === 'forwardReach'){
+        const LW=lm[15], RW=lm[16];
+        if (!visOK(LW) && !visOK(RW)){ status("We can’t see your wrists — bring hands into frame"); return null; }
+        const useLeft = visOK(LW) && (!visOK(RW) || sessionStarHits%2===0);
+        const wrist = useLeft ? LW : RW;
+        const p = toPix(wrist);
+        const x = clamp(p.x + (useLeft? -1 : 1) * (w*0.18), padX, w-padX);
+        const y = clamp(p.y - h*0.12, padY, h*0.55);
+        return { x, y, label: useLeft?'Left hand':'Right hand', kind:'wrist', posture:'shouldersLevel' };
+      }
+
+      if (currentExercise?.criteria === 'lateralReach'){
+        const side = (sessionStarHits%2===0)?'left':'right';
+        const y = clamp(h*0.45, padY, h*0.7);
+        const x = side==='left' ? padX + w*0.08 : w - padX - w*0.08;
+        return { x, y, label: side==='left'?'Reach left':'Reach right', kind:'wrist', posture:'shouldersLevel+elbowStraight', side };
+      }
+
+      if (currentExercise?.criteria === 'marchingInPlace'){
+        const side = (sessionStarHits%2===0)?'left':'right';
+        const kneeIdx = side==='left' ? 25 : 26;
+        const knee = lm[kneeIdx];
+        if (!visOK(knee)){ status(`We can’t see your ${side} knee — step back a bit`); return null; }
+        const p = toPix(knee);
+        const y = clamp(p.y - h*0.22, padY, h*0.6);
+        return { x: clamp(p.x, padX, w-padX), y, label:`Lift ${side} knee`, kind:'knee', posture:'kneeAboveHip', side };
+      }
+
+      return { x: w*0.5, y: h*0.22, label:'Target', kind:'generic' };
+    }
+
+    function postureOK(tag, lm){
+      if (!tag) return true;
+      if (tag==='shouldersLevel') {
+        const ok = shouldersLevel(lm, 10);
+        if (!ok) status("Both shoulders should be level (line horizontal)"); 
+        return ok;
+      }
+      if (tag==='shouldersLevel+elbowStraight'){
+        const ok = shouldersLevel(lm, 10) && elbowsStraightEnough(lm);
+        if (!ok) status("Keep shoulders level and straighten reaching arm");
+        return ok;
+      }
+      if (tag==='kneeAboveHip'){
+        const Lh=lm[23], Rh=lm[24];
+        if (!visOK(Lh) || !visOK(Rh)) { status("We can’t see your hips"); return false; }
+        const midHipY = ((toPix(Lh).y + toPix(Rh).y)/2);
+        const kL=lm[25], kR=lm[26];
+        let ok=false;
+        if (visOK(kL)) ok = ok || (toPix(kL).y < midHipY - canvas.height*0.06);
+        if (visOK(kR)) ok = ok || (toPix(kR).y < midHipY - canvas.height*0.06);
+        if (!ok) status("Lift knee higher (towards hip height)");
+        return ok;
+      }
+      return true;
+    }
+
+    function spawnExplosionParticles(x,y,color){
+      const parts=[]; for (let i=0;i<16;i++){ const a=(i/16)*Math.PI*2+Math.random()*0.3, sp=2.2+Math.random()*2.2;
+        parts.push({ x,y,vx:Math.cos(a)*sp, vy:Math.sin(a)*sp, life:520+Math.random()*200, born:performance.now(), color }); }
+      return parts;
+    }
+
+    function spawnSingleStar(now){
+      if (stars.length>0 || now<nextAllowedSpawnAt) return;
+      const target = latestLm ? getNextTarget(latestLm) : null;
+      if (!target) return;
+      const baseR = Math.max(30, Math.min(60, canvas.width * 0.035));
+      stars = [{
+        x: target.x, y: -60, targetY: target.y, r: baseR,
+        vy: NOTE_SPEED_PX_S, spawnedAt: now, hit:false, hitAt:0, holdFrames:0, inside:false,
+        particles:[], label: target.label, kind: target.kind, posture: target.posture, side: target.side
+      }];
+    }
+
+    function drawStarsAndUI(now){
+      stars.forEach(s=>{
+        ctx.save();
+        const idleFill = '#ffef7a', idleGlow='rgba(255,240,120,0.22)', insideFill='#ffd54a', stroke='#ffffffcc';
+        let r=s.r, alpha=1;
+
+        s.x = clamp(s.x, 20, canvas.width-20);
+        s.y = clamp(s.y, -80, canvas.height-20);
+
+        if (!s.hit){ const t=now-s.spawnedAt; r=s.r*(1+0.12*Math.sin(t/220)); }
+        else { const dt=(now-s.hitAt); const k=Math.min(1, dt/350); r=s.r*(1+0.9*k); alpha=1-Math.min(1, dt/650); }
+
+        ctx.globalAlpha=alpha; ctx.beginPath(); ctx.arc(s.x,s.y,r+12,0,Math.PI*2); ctx.fillStyle=idleGlow; ctx.fill();
+
+        ctx.shadowColor=s.inside?insideFill:idleFill; ctx.shadowBlur=18;
+        starPath(s.x,s.y,5,r,r*0.48); ctx.fillStyle=s.inside?insideFill:idleFill; ctx.fill();
+        ctx.shadowBlur=0; ctx.lineWidth=3; ctx.strokeStyle=stroke; ctx.stroke();
+
+        ctx.globalAlpha=1; ctx.font='12px ui-monospace,monospace'; ctx.fillStyle='#fff'; ctx.textAlign='center';
+        ctx.fillText(s.label||'', s.x, s.y - r - 8);
+
+        if (s.particles?.length){
+          for (const p of s.particles){
+            const age=now-p.born;
+            p.x+=p.vx; p.y+=p.vy; p.vx*=0.98; p.vy=p.vy*0.98+0.06; p.dead = age>p.life;
+            ctx.globalAlpha = Math.max(0, 1 - age/(p.life));
+            ctx.beginPath(); ctx.arc(p.x, p.y, 3 + 2*ctx.globalAlpha, 0, Math.PI*2); ctx.fillStyle = '#ffd54a'; ctx.fill();
+          }
+          ctx.globalAlpha=1;
+        }
+        ctx.restore();
+      });
+
+      // HUD strip
+      ctx.save();
+      ctx.fillStyle='rgba(0,0,0,0.45)'; ctx.fillRect(10,10,canvas.width-20,44);
+      ctx.fillStyle='#fff'; ctx.font='16px ui-monospace,monospace';
+      ctx.textAlign='left';  ctx.fillText(`Combo: ${combo}`, 24, 38);
+      ctx.textAlign='right'; ctx.fillText(feedbackMsg || (stars.length? 'Touch the target!' : 'Get ready…'), canvas.width-24, 38);
+      ctx.restore();
+    }
+
+    function updateCoachAndTargets(lm, dt, now){
+      spawnSingleStar(now);
+
+      for (const s of stars){
+        if (!s.hit){
+          if (s.y < s.targetY) s.y += Math.min(NOTE_SPEED_PX_S * dt, s.targetY - s.y);
+          else s.y += 20 * dt;
+
+          if (!postureOK(s.posture, lm)) { s.inside=false; s.holdFrames=0; continue; }
+
+          let cands=[], needMsg='';
+          if (s.kind==='wrist'){
+            if (visOK(lm[15])) cands.push({n:'Left Wrist', p:toPix(lm[15])});
+            if (visOK(lm[16])) cands.push({n:'Right Wrist',p:toPix(lm[16])});
+            needMsg = "We can’t see your wrists — bring hands into frame";
+          } else if (s.kind==='knee'){
+            if (visOK(lm[25])) cands.push({n:'Left Knee', p:toPix(lm[25])});
+            if (visOK(lm[26])) cands.push({n:'Right Knee',p:toPix(lm[26])});
+            needMsg = "We can’t see your knees — step back a little";
+          } else {
+            const LS=lm[11], RS=lm[12];
+            if (visOK(LS) && visOK(RS)){
+              const m={x:(LS.x+RS.x)/2,y:(LS.y+RS.y)/2,visibility:1};
+              cands.push({n:'Center', p:toPix(m)});
+            } else needMsg = "We can’t see your shoulders";
+          }
+
+          if (!cands.length){ status(needMsg); continue; }
+          const hitPoint = cands.reduce((a,b)=> (dist(a.p,s) < dist(b.p,s) ? a : b));
+          const inside = dist(hitPoint.p, s) <= s.r + 28;
+
+          s.inside = inside;
+          if (inside){
+            s.holdFrames++;
+            if (s.holdFrames >= HIT_GRACE_FRAMES && performance.now()-lastHitAt > 200){
+              s.hit = true; s.hitAt = performance.now(); lastHitAt = s.hitAt;
+              combo++; score += 15; starCount += 1; sessionStarHits++; streak++;
+              s.particles = spawnExplosionParticles(s.x, s.y, '#ffd54a');
+              playDing(); bopMascot();
+            }
+          } else {
+            s.holdFrames = 0;
+          }
+
+          if (!s.hit && s.y > MISS_Y){ s.y = MISS_Y - 2; }
+        } else {
+          if (s.particles?.length){
+            s.particles = s.particles.map(p=>{
+              const age = performance.now()-p.born;
+              p.x+=p.vx; p.y+=p.vy; p.vx*=0.98; p.vy=p.vy*0.98+0.06; p.dead = age>p.life; return p;
+            }).filter(p=>!p.dead);
+          }
+          if (performance.now() - s.hitAt > POST_HIT_DESPAWN_MS){
+            stars=[]; nextAllowedSpawnAt = performance.now() + NEXT_DELAY_MS;
+          }
+        }
+      }
+
+      scoreEl.textContent=score; streakEl.textContent=streak; starsEl.textContent=starCount;
+    }
+
+    // =========================================================================================
+    // REPS via CRITERIA (unchanged)
+    // =========================================================================================
+    function updateRepsByCriteria(lm){
+      const fn = window.CRITERIA?.[currentExercise?.criteria];
+      if (!fn) return false;
+      const out = fn(lm);
+      if (out && out.rep_completed){
+        repCount++; score += 10; streak++; playDing(); bopMascot();
+        updateExerciseInfo();
+        if (repCount >= (currentExercise.repetitions_target || 8)){
+          goToExercise(currentExerciseIndex+1);
+        }
+        return true;
+      }
+      return false;
+    }
+
+    // ---------- LOOP
+    let _prevNow = performance.now();
+    function renderLoop(){
+      const now = performance.now(), dt = (now - _prevNow)/1000; _prevNow = now;
+
+      drawCameraFrame();
+      if (latestLm){
+        drawLandmarks(latestLm);
+
+        if (currentExercise?.criteria==='shoulderFlexionForwardRaise' || currentExercise?.criteria==='shoulderAbduction'){
+          drawShoulderLocator(latestLm);
+        }
+
+        if (currentExercise?.criteria === 'shoulderAbduction'){
+          drawRainbowStars();
+          updateRainbowBilateralHits(latestLm);
+        } else {
+          updateCoachAndTargets(latestLm, dt, now);
+          drawStarsAndUI(now);
+          updateRepsByCriteria(latestLm);
+        }
+      } else {
+        if (currentExercise?.criteria !== 'shoulderAbduction'){ drawStarsAndUI(now); }
+      }
+      requestAnimationFrame(renderLoop);
+    }
+
+    // ---------- FLOW
+    function updateExerciseInfo(){
+      const name = currentExercise?.name ?? '—';
+      const desc = currentExercise?.description ?? '';
+      const reps = currentExercise?.repetitions_target ?? 8;
+      exerciseInfoEl.textContent = `${name}: ${desc}  |  Reps ${repCount}/${reps}`;
+    }
+
+    function resetPerExercise(){
+      repCount = 0;
+      sessionStarHits = 0;
+      stars = [];
+      combo = 0;
+      feedbackMsg = '';
+      nextAllowedSpawnAt = 0;
+
+      if (currentExercise?.criteria === 'shoulderAbduction') setupRainbowStars(true);
+      updateExerciseInfo();
+    }
+
+    function goToExercise(index){
+      const list = window.exercises || [];
+      currentExerciseIndex = Math.max(0, Math.min(list.length-1, index));
+      currentExercise = list[currentExerciseIndex];
+      status(`Exercise: ${currentExercise?.name || ''}`);
+      resetPerExercise();
+
+      if (currentExercise?.criteria === 'weightShifting'){
+        status('Weight Shifting is disabled — skipping.');
+        goToExercise(currentExerciseIndex+1);
+      }
+    }
+
+    function goToExerciseId(id){
+      const list = window.exercises || [];
+      const idx = list.findIndex(e=>e.id===id);
+      if (idx >= 0) goToExercise(idx);
+      else goToExercise(currentExerciseIndex+1);
+    }
+
+    // ---------- CAMERA OPEN (robust + HTTPS checks)
+    async function openCameraWithFallbacks(){
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+        throw new Error('getUserMedia not supported in this browser');
+      }
+      // Helpful heads-up if not secure
+      if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1'){
+        status('⚠️ Camera access requires HTTPS or localhost. Try http://localhost:3000 or https://…');
+      }
+
+      const tries = [
+        { video: { facingMode:{ideal:'user'}, width:{ideal:1280}, height:{ideal:720} }, audio:false },
+        { video: { facingMode:'user' }, audio:false },
+        { video: true, audio:false },
+      ];
+
+      let lastErr;
+      for (const c of tries){
+        try {
+          return await navigator.mediaDevices.getUserMedia(c);
+        } catch(e){ lastErr = e; }
+      }
+      throw lastErr || new Error('Unable to open camera');
+    }
+
+    // ---------- START
+    async function start(){
+      if (running) return; running=true;
+      try{
+        initAudio();
+        status('requesting camera…');
+
+        video.setAttribute('playsinline','');
+        video.setAttribute('autoplay','');
+        video.muted = true;
+
+        const stream = await openCameraWithFallbacks();
+        video.srcObject = stream;
+
+        await new Promise(res=>{
+          const ready = () => res();
+          if (video.readyState >= 1) return res();
+          video.addEventListener('loadedmetadata', ready, {once:true});
+        });
+
+        await video.play().catch(()=>{}); // some browsers auto-play muted
+        setCanvasSize();
+        window.addEventListener('resize', setCanvasSize);
+        renderLoop();
+        status('camera ready');
+
+        const PoseCtor = window.Pose || (window.pose && window.pose.Pose);
+        if (!PoseCtor){ status('ERROR: Pose constructor not found'); return; }
+        const pose = new PoseCtor({ locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${f}` });
+        pose.setOptions({ modelComplexity: 1, smoothLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+        pose.onResults(({ poseLandmarks })=>{ latestLm = poseLandmarks || null; });
+
+        if (typeof Camera === 'function'){
+          const cam = new Camera(video, { onFrame: async () => { await pose.send({ image: video }); }, width: canvas.width, height: canvas.height });
+          cam.start(); status('running…');
+        } else {
+          status('no Camera helper; using fallback loop');
+          (async function loop(){ await pose.send({ image: video }); requestAnimationFrame(loop); })();
+        }
+      }catch(e){
+        console.error(e);
+        status(`ERROR opening camera: ${e && (e.name||'') } ${e && (e.message||e)}`);
+        if (e && e.name === 'NotAllowedError'){
+          status('ERROR: Camera permission denied. Please allow camera access in the browser.');
+        } else if (e && e.name === 'NotFoundError'){
+          status('ERROR: No camera found. If on desktop, plug in or enable a webcam.');
+        }
+      }
+    }
+
+    startBtn.addEventListener('click', start);
+    nextBtn.addEventListener('click', ()=> goToExercise(currentExerciseIndex+1));
+
+    // init
+    updateExerciseInfo();
+    status(`Current Exercise: ${currentExercise?.name || ''}`);
+  </script>
+</body>
+</html>
